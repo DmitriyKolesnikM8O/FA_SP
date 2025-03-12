@@ -3,7 +3,6 @@
 
 #include <stdio.h>
 
-
 typedef enum type_error{
     SUCCESS,
     INPUT_FILE_ERROR,
