@@ -3,16 +3,14 @@
 #include <string.h>
 #include <time.h>
 #include <ctype.h>
-#include "utility.h"
 
-
-#define MAX_USERS 100
-#define MAX_LOGIN_LENGTH 6
-#define SANCTION_CODE "12345"
+#define MAX_USERS 1000
+#define LOGIN 6
+#define SANCTION "12345"
 
 typedef struct {
-    char login[MAX_LOGIN_LENGTH + 1];
-    char pinHash[32];
+    char login[LOGIN + 1];
+    unsigned long pinHash; // Хеш как число
     int sanctionLimit;
 } User;
 
@@ -86,23 +84,34 @@ UserPrompt userPrompts[] = {
     {"PIN (0-100000): ", "Error: Invalid PIN."}
 };
 
-
-void hashPin(long int pin, char *output) {
+void hashPin(long int pin, unsigned long *output) {
     char pinStr[7];
     snprintf(pinStr, sizeof(pinStr), "%ld", pin);
     unsigned long hash = 0;
     for (int i = 0; pinStr[i]; i++) {
         hash += pinStr[i] * 31;
     }
-    snprintf(output, 32, "%lu", hash);
+    *output = hash;
 }
 
 void printMessage(const char *message) {
     printf("%s\n", message);
 }
 
+int isValidLogin(const char *login) {
+    int len = strlen(login);
+    if (len == 0 || len > LOGIN) return -1;
+    for (int i = 0; i < len; i++) {
+        if (!isalnum(login[i])) return -1;
+    }
+    return 1;
+}
+
 void initDatabase(UserDatabase* db, const char* filePath) {
-    memset(db, 0, sizeof(UserDatabase));
+    memset(db, 0, sizeof(UserDatabase)); 
+    for (int i = 0; i < MAX_USERS; i++) {
+        db->users[i] = NULL;
+    }
     strncpy(db->dbFilePath, filePath, sizeof(db->dbFilePath) - 1);
     db->dbFilePath[sizeof(db->dbFilePath) - 1] = '\0';
 }
@@ -125,6 +134,10 @@ int loadUsers(UserDatabase* db) {
             break;
         }
         if (fread(user, sizeof(User), 1, file) != 1) {
+            free(user);
+            break;
+        }
+        if (isValidLogin(user->login) == -1) {
             free(user);
             break;
         }
@@ -156,15 +169,6 @@ User* findUser(const UserDatabase* db, const char *login) {
     return NULL;
 }
 
-int isValidLogin(const char *login) {
-    int len = strlen(login);
-    if (len == 0 || len > MAX_LOGIN_LENGTH) return -1;
-    for (int i = 0; i < len; i++) {
-        if (!isalnum(login[i])) return -1;
-    }
-    return 1;
-}
-
 int registerUser(UserDatabase* db, const char *login, long int pin) {
     if (db->count >= MAX_USERS) {
         printMessage(errorMessages[0].message);
@@ -184,9 +188,9 @@ int registerUser(UserDatabase* db, const char *login, long int pin) {
         printMessage(errorMessages[1].message);
         return 0;
     }
-    strncpy(newUser->login, login, MAX_LOGIN_LENGTH);
-    newUser->login[MAX_LOGIN_LENGTH] = '\0';
-    hashPin(pin, newUser->pinHash);
+    strncpy(newUser->login, login, LOGIN);
+    newUser->login[LOGIN] = '\0';
+    hashPin(pin, &newUser->pinHash);
     newUser->sanctionLimit = 0;
 
     db->users[db->count++] = newUser;
@@ -218,16 +222,21 @@ void processDate() {
     }
 }
 
+void clearInputBuffer() {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+}
+
 void processHowMuch() {
-    char dateStr[16], flag[4];
+    char dateStr[32], flag[10];
     printf("%s", userPrompts[0].prompt);
     if (!fgets(dateStr, sizeof(dateStr), stdin)) return;
     dateStr[strcspn(dateStr, "\n")] = '\0';
 
     int day, month, year;
-    if (sscanf(dateStr, "%d.%d.%d", &day, &month, &year) != 3 ||
-        day < 1 || day > 31 || month < 1 || month > 12 || year < 1900) {
+    if (sscanf(dateStr, "%d.%d.%d", &day, &month, &year) != 3 || day < 1 || day > 31 || month < 1 || month > 12 || year < 1900) {
         printMessage(userPrompts[0].error);
+        clearInputBuffer();
         return;
     }
 
@@ -238,7 +247,7 @@ void processHowMuch() {
     input_tm.tm_isdst = -1;
 
     time_t input_time = mktime(&input_tm);
-    if (input_time == -1) {
+    if (input_time == -1 || input_tm.tm_mday != day || input_tm.tm_mon != month - 1 || input_tm.tm_year != year - 1900) {
         printMessage(errorMessages[5].message);
         return;
     }
@@ -262,7 +271,7 @@ void processHowMuch() {
 }
 
 void processSanctions(UserDatabase* db) {
-    char targetLogin[MAX_LOGIN_LENGTH + 1];
+    char targetLogin[LOGIN + 1];
     printf("%s", userPrompts[2].prompt);
     if (!fgets(targetLogin, sizeof(targetLogin), stdin)) return;
     targetLogin[strcspn(targetLogin, "\n")] = '\0';
@@ -289,7 +298,7 @@ void processSanctions(UserDatabase* db) {
     char confirm[10];
     if (!fgets(confirm, sizeof(confirm), stdin)) return;
     confirm[strcspn(confirm, "\n")] = '\0';
-    if (strcmp(confirm, SANCTION_CODE) != 0) {
+    if (strcmp(confirm, SANCTION) != 0) {
         printMessage(errorMessages[10].message);
         return;
     }
@@ -367,7 +376,7 @@ void authMenu(UserDatabase* db) {
             break;
         }
 
-        char login[MAX_LOGIN_LENGTH + 2];
+        char login[LOGIN + 2];
         printf("%s", userPrompts[5].prompt);
         if (!fgets(login, sizeof(login), stdin)) continue;
         login[strcspn(login, "\n")] = '\0';
@@ -389,12 +398,12 @@ void authMenu(UserDatabase* db) {
             continue;
         }
 
-        char inputPinHash[32];
-        hashPin(pin, inputPinHash);
+        unsigned long inputPinHash; // Теперь unsigned long
+        hashPin(pin, &inputPinHash);
 
         if (choice == 1) {
             User *user = findUser(db, login);
-            if (!user || strcmp(user->pinHash, inputPinHash) != 0) {
+            if (!user || user->pinHash != inputPinHash) { // Сравнение чисел
                 printMessage(errorMessages[15].message);
                 continue;
             }

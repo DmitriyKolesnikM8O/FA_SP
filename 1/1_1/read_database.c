@@ -1,16 +1,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <ctype.h>
 
 #define MAX_USERS 100
-#define MAX_LOGIN_LENGTH 6
-#define SANCTION_CODE "12345"
+#define LOGIN 6
+#define SANCTION "12345"
 
 typedef struct {
-    char login[MAX_LOGIN_LENGTH + 1];
-    char pinHash[32];
-    int sanctionLimit;
+    char login[LOGIN + 1];    // 7 байт
+    unsigned long pinHash;    // Число (8 байт на 64-битной системе)
+    int sanctionLimit;        // 4 байта
 } User;
 
 typedef struct {
@@ -83,14 +83,38 @@ UserPrompt userPrompts[] = {
     {"PIN (0-100000): ", "Error: Invalid PIN."}
 };
 
+// Проверка валидности логина
+int isValidLogin(const char *login) {
+    int len = strlen(login);
+    if (len == 0 || len > LOGIN) return -1;
+    for (int i = 0; i < len; i++) {
+        if (!isalnum(login[i])) return -1;
+    }
+    return 1;
+}
 
+// Инициализация базы данных
+void initDatabase(UserDatabase *db, const char *filePath) {
+    memset(db, 0, sizeof(UserDatabase));
+    for (int i = 0; i < MAX_USERS; i++) {
+        db->users[i] = NULL;
+    }
+    strncpy(db->dbFilePath, filePath, sizeof(db->dbFilePath) - 1);
+    db->dbFilePath[sizeof(db->dbFilePath) - 1] = '\0';
+}
+
+// Освобождение памяти
+void freeDatabase(UserDatabase *db) {
+    for (int i = 0; i < db->count; i++) {
+        free(db->users[i]);
+    }
+    db->count = 0;
+}
+
+// Функция для вывода содержимого базы данных
 void printDatabase(const char *filePath) {
     UserDatabase db;
-
-    memset(&db, 0, sizeof(UserDatabase));
-    strncpy(db.dbFilePath, filePath, sizeof(db.dbFilePath) - 1);
-    db.dbFilePath[sizeof(db.dbFilePath) - 1] = '\0';
-
+    initDatabase(&db, filePath);
 
     FILE* file = fopen(db.dbFilePath, "rb");
     if (!file) {
@@ -98,42 +122,56 @@ void printDatabase(const char *filePath) {
         return;
     }
 
+    size_t totalRead = 0;
     while (db.count < MAX_USERS) {
         User* user = malloc(sizeof(User));
         if (!user) {
             printf("Error: Memory allocation failed.\n");
             break;
         }
-        if (fread(user, sizeof(User), 1, file) != 1) {
+
+        size_t bytesRead = fread(user, sizeof(User), 1, file);
+        if (bytesRead != 1) {
             free(user);
+            if (feof(file)) {
+                break; // Конец файла
+            }
+            printf("Error: Failed to read user data at entry %d.\n", db.count + 1);
             break;
         }
+
+        // Проверка валидности логина
+        if (isValidLogin(user->login) == -1) {
+            printf("Warning: Invalid login detected at entry %d. Skipping.\n", db.count + 1);
+            free(user);
+            continue;
+        }
+
         db.users[db.count++] = user;
+        totalRead += sizeof(User);
     }
     fclose(file);
 
-
     if (db.count == 0) {
-        printf("Database is empty.\n");
+        printf("Database is empty or no valid entries found in '%s'.\n", filePath);
     } else {
         printf("\nDatabase contents (%s):\n", filePath);
         for (int i = 0; i < db.count; i++) {
+            char pinHashStr[32];
+            snprintf(pinHashStr, sizeof(pinHashStr), "%lu", db.users[i]->pinHash); // Преобразуем хеш в строку
             printf("User %d: Login: %s, PIN Hash: %s, Sanction Limit: %d\n",
-                   i + 1, db.users[i]->login, db.users[i]->pinHash, db.users[i]->sanctionLimit);
+                   i + 1, db.users[i]->login, pinHashStr, db.users[i]->sanctionLimit);
         }
+        printf("Total users read: %d\n", db.count);
     }
 
-    
-    for (int i = 0; i < db.count; i++) {
-        free(db.users[i]);
-    }
-    db.count = 0;
+    freeDatabase(&db);
 }
 
 int main(int argc, char *argv[]) {
     const char *filePath = "users.txt";
     if (argc > 1) {
-        filePath = argv[1]; 
+        filePath = argv[1];
     }
 
     printDatabase(filePath);
