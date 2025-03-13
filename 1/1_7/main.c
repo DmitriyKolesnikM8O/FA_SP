@@ -1,46 +1,35 @@
-#include <grp.h>
-#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/dir.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
+#include <pwd.h>
+#include <grp.h>
 #include <time.h>
+#include <unistd.h>
 
-// #define PATH_MAX 4096
-// #define S_IFIFO  0x1000  // FIFO (именованный канал)
-// #define S_IFCHR  0x2000  // Символьное устройство
-// #define S_IFBLK  0x6000  // Блочное устройство
-// #define S_IFSOCK 0xC000  // Сокет
+#define PATH_MAX 4096
 
-typedef enum type_error{
+typedef enum {
     SUCCESS,
     INPUT_FILE_ERROR,
-    OUTPUT_FILE_ERROR,
     MEMORY_ALLOCATED_ERROR,
-    INDEX_VECTOR_ERROR,
-    OVERFLOW_ERROR,
-    INCORRECT_OPTIONS_ERROR,
-    UNRECOGNIZED_CHARACTER_ERROR,
-	NUMERAL_SYSTEM_ERROR,
-	INCORRECT_ARG_FUNCTION,
-	SEM_ERROR,
-	FORK_ERROR,
-	TOKEN_ERROR
+    INCORRECT_ARG_FUNCTION
 } type_error;
 
-typedef struct error_msg{
-	type_error type;
-	const char * func;
-	const char * msg;
-}error_msg;
+typedef struct {
+    type_error type;
+    const char *func;
+    const char *msg;
+} error_msg;
 
 int print_error(error_msg error) {
-	if (error.type) {
-		fprintf(stderr, "Error - %s: %s\n", error.func, error.msg);
-		return error.type;
-	}
-	return 0;
+    if (error.type) {
+        fprintf(stderr, "Error - %s: %s\n", error.func, error.msg);
+        return error.type;
+    }
+    return 0;
 }
 
 void format_time(time_t mtime, char *time_str) {
@@ -56,108 +45,115 @@ void format_time(time_t mtime, char *time_str) {
     }
 }
 
-error_msg access_rights(char* res, struct stat* file_info) {
-    if (res == NULL || file_info == NULL) {
-        return (error_msg){INCORRECT_ARG_FUNCTION, __func__, "get pointer to null"};
+error_msg access_rights(char *res, struct stat *file_info) {
+    if (!res || !file_info) {
+        return (error_msg){INCORRECT_ARG_FUNCTION, __func__, "null pointer received"};
     }
-    char s1[] = "-dplcbs";
-    int r1 = S_ISDIR(file_info->st_mode) % 2 + (S_IFIFO & file_info->st_mode) % 2 * 2 +
-             S_ISLNK(file_info->st_mode) % 2 * 3 + (S_IFCHR & file_info->st_mode) % 2 * 4 +
-             (S_IFBLK & file_info->st_mode) % 2 * 5 + (S_IFSOCK & file_info->st_mode) % 2 * 6;
-    res[0] = s1[r1];
 
-    // Права пользователя
-    if (S_IRUSR & file_info->st_mode) res[1] = 'r'; else res[1] = '-';
-    if (S_IWUSR & file_info->st_mode) res[2] = 'w'; else res[2] = '-';
-    if (S_IXUSR & file_info->st_mode) res[3] = 'x'; else res[3] = '-';
+    
+    if (S_ISDIR(file_info->st_mode)) res[0] = 'd';
+    else if (S_ISLNK(file_info->st_mode)) res[0] = 'l';
+    else if (S_ISFIFO(file_info->st_mode)) res[0] = 'p';
+    else if (S_ISCHR(file_info->st_mode)) res[0] = 'c';
+    else if (S_ISBLK(file_info->st_mode)) res[0] = 'b';
+    else if (S_ISSOCK(file_info->st_mode)) res[0] = 's';
+    else res[0] = '-';
 
-    // Права группы пользователей
-    if (S_IRGRP & file_info->st_mode) res[4] = 'r'; else res[4] = '-';
-    if (S_IWGRP & file_info->st_mode) res[5] = 'w'; else res[5] = '-';
-    if (S_IXGRP & file_info->st_mode) res[6] = 'x'; else res[6] = '-';
+    
+    res[1] = (file_info->st_mode & S_IRUSR) ? 'r' : '-';
+    res[2] = (file_info->st_mode & S_IWUSR) ? 'w' : '-';
+    res[3] = (file_info->st_mode & S_IXUSR) ? 'x' : '-';
 
-    // Права всех прочих
-    if (S_IROTH & file_info->st_mode) res[7] = 'r'; else res[7] = '-';
-    if (S_IWOTH & file_info->st_mode) res[8] = 'w'; else res[8] = '-';
-    if (S_IXOTH & file_info->st_mode) res[9] = 'x'; else res[9] = '-';
+    
+    res[4] = (file_info->st_mode & S_IRGRP) ? 'r' : '-';
+    res[5] = (file_info->st_mode & S_IWGRP) ? 'w' : '-';
+    res[6] = (file_info->st_mode & S_IXGRP) ? 'x' : '-';
+
+    
+    res[7] = (file_info->st_mode & S_IROTH) ? 'r' : '-';
+    res[8] = (file_info->st_mode & S_IWOTH) ? 'w' : '-';
+    res[9] = (file_info->st_mode & S_IXOTH) ? 'x' : '-';
+    res[10] = '\0';
 
     return (error_msg){SUCCESS, "", ""};
 }
 
-error_msg processing_file(const char* file_name, char* result) {
-    if (file_name == NULL) {
-        return (error_msg){INCORRECT_ARG_FUNCTION, __func__, "get pointer to null"};
+error_msg print_file_info(const char *file_name) {
+    if (!file_name) {
+        return (error_msg){INCORRECT_ARG_FUNCTION, __func__, "null pointer received"};
     }
 
     struct stat file_info;
-    int er = stat(file_name, &file_info);
-    if (er == -1) {
-        return (error_msg){INPUT_FILE_ERROR, __func__, "stat file"};
+    if (stat(file_name, &file_info) == -1) {
+        return (error_msg){INPUT_FILE_ERROR, __func__, "stat failed"};
     }
 
-    char rights[11] = "\0";
-    memset(rights, '\0', 10);
-    error_msg errorMsg = access_rights(rights, &file_info);
-    if (errorMsg.type) {
-        return errorMsg;
-    }
-    rights[10] = '\0';
-    sprintf(result, "%s ", rights);
-    sprintf(result + strlen(result), "%2lu %s %s %6lu", file_info.st_nlink, 
-            getpwuid(file_info.st_uid)->pw_name, getgrgid(file_info.st_gid)->gr_name, file_info.st_size);
+    char rights[11];
+    error_msg err = access_rights(rights, &file_info);
+    if (err.type) return err;
 
-    char mtime_str[80];
-    format_time(file_info.st_mtime, mtime_str);
-    sprintf(result + strlen(result), " %s", mtime_str);
+    struct passwd *pw = getpwuid(file_info.st_uid);
+    struct group *gr = getgrgid(file_info.st_gid);
+    char *user_name = pw ? pw->pw_name : "unknown";
+    char *group_name = gr ? gr->gr_name : "unknown";
 
-    char abs_path[PATH_MAX];
-    if (realpath(file_name, abs_path) == NULL) {
-        return (error_msg){INPUT_FILE_ERROR, __func__, "realpath"};
-    }
-    sprintf(result + strlen(result), " %s\n", abs_path);
+    char time_str[20];
+    format_time(file_info.st_mtime, time_str);
+
+    
+    printf("%s %2lu %s %s %6lu %s %lu %s\n",
+           rights, (unsigned long)file_info.st_nlink, user_name, group_name,
+           (unsigned long)file_info.st_size, time_str, (unsigned long)file_info.st_ino, file_name);
 
     return (error_msg){SUCCESS, "", ""};
 }
 
-
-error_msg processing_catalog(const char* catalog_name) {
-    if (catalog_name == NULL) {
-        return (error_msg){INCORRECT_ARG_FUNCTION, __func__, "get pointer to null"};
+error_msg process_directory(const char *dir_name) {
+    if (!dir_name) {
+        return (error_msg){INCORRECT_ARG_FUNCTION, __func__, "null pointer received"};
     }
 
-    DIR* dir = opendir(catalog_name);
-    if (dir == NULL) {
-        return (error_msg){INPUT_FILE_ERROR, __func__, "the catalog didn't open"};
+    DIR *dir = opendir(dir_name);
+    if (!dir) {
+        return (error_msg){INPUT_FILE_ERROR, __func__, "cannot open directory"};
     }
-    struct dirent* entry;
+
+    printf("Directory: %s\n", dir_name);
+    struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
-        char info[PATH_MAX * 2] = "\0";
-        memset(info, '\0', PATH_MAX * 2);
-
-        // Формируем полный путь
-        char full_path[PATH_MAX];
-        snprintf(full_path, PATH_MAX, "%s/%s", catalog_name, entry->d_name);
-
-        error_msg errorMsg = processing_file(full_path, info); // Передаём полный путь
-        if (errorMsg.type) {
-            closedir(dir);
-            return errorMsg;
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
         }
-        printf("%s", info);
+
+        char full_path[PATH_MAX];
+        snprintf(full_path, sizeof(full_path), "%s/%s", dir_name, entry->d_name);
+
+        error_msg err = print_file_info(full_path);
+        if (err.type) {
+            closedir(dir);
+            return err;
+        }
     }
 
     closedir(dir);
     return (error_msg){SUCCESS, "", ""};
 }
 
-int main(int argc, char* argv[]) {
-	for (int j = 1;j < argc; ++j) {
-		char * catalog_name = argv[j];
-		error_msg errorMsg = processing_catalog(catalog_name);
-		if(errorMsg.type){
-			return print_error(errorMsg);
-		}
-	}
-	return 0;
+int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <directory1> [directory2 ...]\n", argv[0]);
+        return 1;
+    }
+
+    for (int i = 1; i < argc; i++) {
+        error_msg err = process_directory(argv[i]);
+        if (err.type) {
+            return print_error(err);
+        }
+        if (i < argc - 1) {
+            printf("\n");
+        }
+    }
+
+    return 0;
 }
