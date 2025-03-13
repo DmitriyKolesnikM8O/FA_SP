@@ -11,8 +11,8 @@ void xorN_operation(int file_count, char *files[], int N) {
     size_t block_size = BLOCK_SIZE_2N(N);
     uint8_t *block = calloc(block_size, 1);
     if (!block) {
-        perror("Failed to allocate memory");
-        exit(EXIT_FAILURE);
+        perror("Failed to allocate memory for block");
+        return; // Выход без утечки памяти
     }
 
     for (int i = 0; i < file_count; i++) {
@@ -22,31 +22,41 @@ void xorN_operation(int file_count, char *files[], int N) {
             continue;
         }
 
-        uint8_t result[block_size];
-        memset(result, 0, block_size);
+        uint8_t *result = calloc(block_size, 1);
+        if (!result) {
+            perror("Failed to allocate memory for result");
+            fclose(file);
+            continue;
+        }
+
         size_t bytes_read;
-        int first_block = 1;
+        int blocks_processed = 0;
 
         while ((bytes_read = fread(block, 1, block_size, file)) > 0) {
             if (bytes_read < block_size) {
-                memset(block + bytes_read, 0, block_size - bytes_read);
+                memset(block + bytes_read, 0, block_size - bytes_read); // Заполняем 0x00
             }
-            if (first_block) {
+            if (blocks_processed == 0) {
                 memcpy(result, block, block_size);
-                first_block = 0;
             } else {
                 for (size_t j = 0; j < block_size; j++) {
                     result[j] ^= block[j];
                 }
             }
+            blocks_processed++;
         }
 
-        printf("XOR result for %s: ", files[i]);
-        for (size_t j = 0; j < block_size; j++) {
-            printf("%02x", result[j]);
+        if (blocks_processed == 0) {
+            printf("File %s is empty\n", files[i]);
+        } else {
+            printf("XOR result for %s: ", files[i]);
+            for (size_t j = 0; j < block_size; j++) {
+                printf("%02x", result[j]);
+            }
+            printf("\n");
         }
-        printf("\n");
 
+        free(result);
         fclose(file);
     }
     free(block);
@@ -62,10 +72,14 @@ void mask_operation(int file_count, char *files[], uint32_t mask) {
 
         int count = 0;
         uint32_t value;
-        while (fread(&value, sizeof(uint32_t), 1, file) == 1) {
+        size_t bytes_read;
+        while ((bytes_read = fread(&value, 1, sizeof(uint32_t), file)) == sizeof(uint32_t)) {
             if ((value & mask) == mask) {
                 count++;
             }
+        }
+        if (bytes_read > 0) {
+            printf("Warning: File %s has incomplete 4-byte block at end\n", files[i]);
         }
         printf("File %s: %d matches\n", files[i], count);
         fclose(file);
@@ -74,27 +88,39 @@ void mask_operation(int file_count, char *files[], uint32_t mask) {
 
 void copyN_operation(int file_count, char *files[], int N) {
     pid_t *pids = malloc(file_count * N * sizeof(pid_t));
+    if (!pids) {
+        perror("Failed to allocate memory for PIDs");
+        return;
+    }
     int pid_count = 0;
 
     for (int i = 0; i < file_count; i++) {
         for (int j = 0; j < N; j++) {
             pid_t pid = fork();
-            if (pid == 0) {
+            if (pid == 0) { // Дочерний процесс
                 char new_filename[256];
                 snprintf(new_filename, sizeof(new_filename), "%s_%d", files[i], j + 1);
                 FILE *src = fopen(files[i], "rb");
+                if (!src) {
+                    perror("Failed to open source file");
+                    exit(EXIT_FAILURE);
+                }
                 FILE *dst = fopen(new_filename, "wb");
-                if (!src || !dst) {
-                    perror("Failed to open file");
-                    if (src) fclose(src);
-                    if (dst) fclose(dst);
+                if (!dst) {
+                    perror("Failed to open destination file");
+                    fclose(src);
                     exit(EXIT_FAILURE);
                 }
 
                 uint8_t buffer[4096];
                 size_t bytes;
                 while ((bytes = fread(buffer, 1, sizeof(buffer), src)) > 0) {
-                    fwrite(buffer, 1, bytes, dst);
+                    if (fwrite(buffer, 1, bytes, dst) != bytes) {
+                        perror("Failed to write to destination file");
+                        fclose(src);
+                        fclose(dst);
+                        exit(EXIT_FAILURE);
+                    }
                 }
 
                 fclose(src);
@@ -116,25 +142,33 @@ void copyN_operation(int file_count, char *files[], int N) {
 
 void find_operation(int file_count, char *files[], const char *search_string) {
     pid_t *pids = malloc(file_count * sizeof(pid_t));
+    if (!pids) {
+        perror("Failed to allocate memory for PIDs");
+        return;
+    }
     int found = 0;
 
     for (int i = 0; i < file_count; i++) {
         pid_t pid = fork();
-        if (pid == 0) {
+        if (pid == 0) { // Дочерний процесс
             FILE *file = fopen(files[i], "r");
             if (!file) {
-                exit(EXIT_FAILURE); // Не выводим ошибку, просто выходим
+                exit(EXIT_FAILURE); // Тихий выход при ошибке открытия
             }
 
             char *line = NULL;
             size_t len = 0;
-            while (getline(&line, &len, file) != -1) {
+            ssize_t read;
+            while ((read = getline(&line, &len, file)) != -1) {
                 if (strstr(line, search_string)) {
                     printf("Found in file: %s\n", files[i]);
                     free(line);
                     fclose(file);
                     exit(EXIT_SUCCESS);
                 }
+            }
+            if (read == -1 && !feof(file)) {
+                perror("Error reading file");
             }
 
             free(line);
@@ -186,7 +220,7 @@ int main(int argc, char *argv[]) {
             printf("Invalid N for xorN. Must be 2-6.\n");
             return 1;
         }
-        xorN_operation(file_count, argv + 1, N); // Пропускаем argv[0]
+        xorN_operation(file_count, argv + 1, N);
     } else if (strcmp(flag, "mask") == 0) {
         char *endptr;
         uint32_t mask = strtoul(arg, &endptr, 16);
