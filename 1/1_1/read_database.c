@@ -66,13 +66,13 @@ void printDatabase(const char *filePath) {
         if (bytesRead != 1) {
             free(user);
             if (feof(file)) {
-                break; // Конец файла
+                break;
             }
             printf("Error: Failed to read user data at entry %d.\n", db.count + 1);
             break;
         }
 
-        // Проверка валидности логина
+        
         if (isValidLogin(user->login) == -1) {
             printf("Warning: Invalid login detected at entry %d. Skipping.\n", db.count + 1);
             free(user);
