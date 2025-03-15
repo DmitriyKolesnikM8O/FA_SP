@@ -167,7 +167,7 @@ int searchTextInFiles(int file_count, char *files[], const char *search_string) 
                 waitpid(pids[--pid_count], NULL, 0);
             }
             free(pids);
-            return;
+            return 0;
         } else {
             pids[pid_count++] = pid;
         }

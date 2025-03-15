@@ -117,7 +117,7 @@ int determine_permissions(char *perm_string, struct stat *stats) {
     return 0;
 }
 
-void format_time_string(time_t mod_time, char *time_output) {
+int format_time_string(time_t mod_time, char *time_output) {
     struct tm *time_data;
     time_t current_time;
     double time_difference;
@@ -128,14 +128,14 @@ void format_time_string(time_t mod_time, char *time_output) {
     time_data = localtime(&mod_time);
     if (time_data == NULL) {
         strcpy(time_output, "Invalid timestamp");
-        return;
+        return 0;
     }
 
     
     current_time = time(NULL);
     if (current_time == (time_t)-1) {
         strcpy(time_output, "Failed to fetch time");
-        return;
+        return 0;
     }
 
     
@@ -153,6 +153,8 @@ void format_time_string(time_t mod_time, char *time_output) {
 
     
     strftime(time_output, 20, temporary_format, time_data);
+
+    return 0;
 }
 
 int get_disk_block(const char *file_path, struct stat *stats) {
