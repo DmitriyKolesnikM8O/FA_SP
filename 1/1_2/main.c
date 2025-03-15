@@ -7,7 +7,7 @@
 
 #define BLOCK_SIZE_2N(N) ((1 << N) / 8 ? (1 << N) / 8 : 1)
 
-void countMaskedValues(int file_count, char *files[], uint32_t mask) {
+int countMaskedValues(int file_count, char *files[], uint32_t mask) {
     int current_file_index = 0;
     while (current_file_index < file_count) {
         FILE *file_pointer = fopen(files[current_file_index], "rb");
@@ -43,14 +43,16 @@ void countMaskedValues(int file_count, char *files[], uint32_t mask) {
         fclose(file_pointer);
         current_file_index = current_file_index + 1;
     }
+
+    return 0;
 }
 
-void bitwiseCombineN(int file_count, char *files[], int N) {
+int bitwiseCombineN(int file_count, char *files[], int N) {
     size_t block_size_value = BLOCK_SIZE_2N(N);
     uint8_t *block_memory = calloc(block_size_value, 1);
     if (block_memory == NULL) {
         perror("Cannot allocate memory for block");
-        return;
+        return 0;
     }
 
     int file_index = 0;
@@ -113,18 +115,20 @@ void bitwiseCombineN(int file_count, char *files[], int N) {
         file_index = file_index + 1;
     }
     free(block_memory);
+
+    return 0;
 }
 
-void searchTextInFiles(int file_count, char *files[], const char *search_string) {
+int searchTextInFiles(int file_count, char *files[], const char *search_string) {
     if (strlen(search_string) == 0) {
         printf("Error: Empty search string provided.\n");
-        return;
+        return 0;
     }
 
     pid_t *pids = malloc(file_count * sizeof(pid_t));
     if (!pids) {
         perror("Cannot allocate memory for process IDs");
-        return;
+        return 0;
     }
     int pid_count = 0;
     int found = 0;
@@ -181,13 +185,15 @@ void searchTextInFiles(int file_count, char *files[], const char *search_string)
         printf("No occurrences of '%s' found in the files.\n", search_string);
     }
     free(pids);
+
+    return 0;
 }
 
-void replicateFilesN(int file_count, char *files[], int N) {
+int replicateFilesN(int file_count, char *files[], int N) {
     pid_t *pids_array = malloc(file_count * N * sizeof(pid_t));
     if (pids_array == NULL) {
         perror("PID memory allocation error");
-        return;
+        return 0;
     }
     int number_of_pids = 0;
 
@@ -239,7 +245,7 @@ void replicateFilesN(int file_count, char *files[], int N) {
                     waitpid(pids_array[--number_of_pids], NULL, 0);
                 }
                 free(pids_array);
-                return;
+                return 0;
             } else {
                 pids_array[number_of_pids++] = current_pid;
             }
@@ -262,9 +268,11 @@ void replicateFilesN(int file_count, char *files[], int N) {
         printf("Certain copy tasks encountered errors.\n");
     }
     free(pids_array);
+
+    return 0;
 }
 
-void showHelp() {
+int showHelp() {
     printf("\n=== File Processor Usage ===\n");
     printf("Command: ./file_processor <file1> <file2> ... <flag> <args>\n");
     printf("\nAvailable Flags:\n");
@@ -277,6 +285,8 @@ void showHelp() {
     printf("| %-8s | %-37s |\n", "find <string>", "Search for a string in files");
     printf("---------------------------------------------------------\n");
     printf("\nTip: Provide at least one file and a flag with its argument.\n");
+
+    return 0;
 }
 
 int main(int argc, char *argv[]) {
