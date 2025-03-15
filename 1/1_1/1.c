@@ -37,13 +37,22 @@ int getMonthDays(int month, int year) {
     return 31;
 }
 
-void displayMenu() {
+int displayMenu() {
     printf("\nCommand list:\n");
     printf("  1. Time - display current time\n");
     printf("  2. Date - display current date\n");
     printf("  3. HowMuch - calculate elapsed time since a date\n");
     printf("  4. Sanctions - set restrictions for a user\n");
     printf("  5. Logout - exit to login menu\n");
+
+    return 0;
+}
+
+int flushBuffer() {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+
+    return 0;
 }
 
 int verifyLogin(const char *login) {
@@ -56,7 +65,7 @@ int verifyLogin(const char *login) {
     return 1;
 }
 
-void encryptPin(long int pin, unsigned long *output) {
+int encryptPin(long int pin, unsigned long *output) {
     char temp[7];
     sprintf(temp, "%ld", pin);
     *output = 0;
@@ -65,15 +74,31 @@ void encryptPin(long int pin, unsigned long *output) {
         *output += temp[i] * 31;
         i++;
     }
+
+    return 0;
 }
 
-void setupDatabase(UserDatabase* db, const char* filePath) {
+int setupDatabase(UserDatabase* db, const char* filePath) {
+    if (db == NULL) {
+        printf("Error: Invalid database pointer provided.\n");
+        return 0;
+    }
+    if (filePath == NULL) {
+        printf("Error: Invalid file path provided.\n");
+        return 0;
+    }
+    if (strlen(filePath) >= 256) {
+        printf("Error: File path exceeds maximum length of 255 characters.\n");
+        return 0;
+    }
+
     db->count = 0;
     int i;
     for (i = 0; i < MAX_USERS; i++) {
         db->users[i] = NULL;
     }
     strcpy(db->dbFilePath, filePath);
+    return 1;
 }
 
 User* locateUser(const UserDatabase* db, const char *login) {
@@ -85,30 +110,38 @@ User* locateUser(const UserDatabase* db, const char *login) {
     return NULL;
 }
 
-void showCurrentTime() {
+int showCurrentTime() {
     time_t t;
     time(&t);
     struct tm *tm = localtime(&t);
     if (tm) {
         printf("Time now: %02d:%02d:%02d\n", tm->tm_hour, tm->tm_min, tm->tm_sec);
+    } else {
+        printf("Failed to get current time.\n");
     }
+
+    return 0;
 }
 
-void showCurrentDate() {
+int showCurrentDate() {
     time_t t;
     time(&t);
     struct tm *tm = localtime(&t);
     if (tm) {
         printf("Date today: %02d.%02d.%04d\n", tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900);
+    } else {
+        printf("Failed to get current date.\n");
     }
+
+    return 0;
 }
 
-void flushBuffer() {
-    char c;
-    while ((c = getchar()) != '\n' && c != EOF);
-}
 
 int checkTimeElapsedInput(const char *dateStr, int *day, int *month, int *year, const char *flag) {
+    if (flag[0] != '-' || 
+    (flag[1] != 's' && flag[1] != 'm' && flag[1] != 'h' && flag[1] != 'y') || 
+    flag[2] != '\0') return 0;
+    
     int d = 0, m = 0, y = 0;
     int i = 0, part = 0;
     while (dateStr[i] != '\0') {
@@ -122,18 +155,18 @@ int checkTimeElapsedInput(const char *dateStr, int *day, int *month, int *year, 
         else if (part == 2) y = y * 10 + (dateStr[i] - '0');
         i++;
     }
-    *day = d;
-    *month = m;
-    *year = y;
 
     if (m < 1 || m > 12 || y < 1900) return 0;
     if (d < 1 || d > getMonthDays(m, y)) return 0;
 
-    if (flag[0] != '-' || (flag[1] != 's' && flag[1] != 'm' && flag[1] != 'h' && flag[1] != 'y') || flag[2] != '\0') return 0;
+    *day = d;
+    *month = m;
+    *year = y;
+    
     return 1;
 }
 
-void calculateTimeElapsed(int day, int month, int year, const char *flag) {
+int calculateTimeElapsed(int day, int month, int year, const char *flag) {
     struct tm input = {0};
     input.tm_mday = day;
     input.tm_mon = month - 1;
@@ -142,7 +175,7 @@ void calculateTimeElapsed(int day, int month, int year, const char *flag) {
     time_t past = mktime(&input);
     if (past == -1) {
         printf("Failed to process the date.\n");
-        return;
+        return 0 ;
     }
 
     time_t now;
@@ -150,26 +183,38 @@ void calculateTimeElapsed(int day, int month, int year, const char *flag) {
     double diff = difftime(now, past);
     if (diff < 0) {
         printf("Error: Date is in the future.\n");
-        return;
+        return 0 ;
     }
 
     if (flag[1] == 's') printf("Time passed: %.0f seconds\n", diff);
     else if (flag[1] == 'm') printf("Time passed: %.0f minutes\n", diff / 60);
     else if (flag[1] == 'h') printf("Time passed: %.0f hours\n", diff / 3600);
     else if (flag[1] == 'y') printf("Time passed: %.2f years\n", diff / (3600 * 24 * 365.25));
+
+    return 0;
 }
 
 int storeUsers(const UserDatabase* db) {
+    if (db == NULL) {
+        printf("Error: Invalid database pointer provided.\n");
+        return 0;
+    }
+
     FILE* file = fopen(db->dbFilePath, "wb");
     if (!file) {
-        printf("Error: Unable to save user data.\n");
+        perror("Error opening file for saving user data");
         return 0;
     }
     int i = 0;
     while (i < db->count) {
-        if (fwrite(db->users[i], sizeof(User), 1, file) != 1) {
+        if (db->users[i] == NULL) {
+            printf("Error: Null user entry found at index %d.\n", i);
             fclose(file);
-            printf("Error: Writing user data failed.\n");
+            return 0;
+        }
+        if (fwrite(db->users[i], sizeof(User), 1, file) != 1) {
+            printf("Error: Failed to write user data for user %d.\n", i);
+            fclose(file);
             return 0;
         }
         i++;
@@ -178,23 +223,25 @@ int storeUsers(const UserDatabase* db) {
     return 1;
 }
 
-void handleTimeElapsed() {
+int handleTimeElapsed() {
     char dateStr[32], flag[10];
     printf("Input date (dd.mm.yyyy): ");
-    if (!fgets(dateStr, sizeof(dateStr), stdin)) return;
+    if (!fgets(dateStr, sizeof(dateStr), stdin)) return 0;
     dateStr[strcspn(dateStr, "\n")] = '\0';
 
     printf("Select unit (-s, -m, -h, -y): ");
-    if (!fgets(flag, sizeof(flag), stdin)) return;
+    if (!fgets(flag, sizeof(flag), stdin)) return 0;
     flag[strcspn(flag, "\n")] = '\0';
 
     int day, month, year;
     if (!checkTimeElapsedInput(dateStr, &day, &month, &year, flag)) {
         printf("Invalid date or unit (-s, -m, -h, or -y).\n");
-        return;
+        return 0;
     }
 
     calculateTimeElapsed(day, month, year, flag);
+
+    return 0;
 }
 
 int checkRestrictionInput(const char *targetLogin, const char *limitStr, const char *confirm) {
@@ -204,38 +251,50 @@ int checkRestrictionInput(const char *targetLogin, const char *limitStr, const c
     return 1;
 }
 
-void setUserRestriction(UserDatabase* db, const char *targetLogin, int limit) {
+int setUserRestriction(UserDatabase* db, const char *targetLogin, int limit) {
     User *targetUser = locateUser(db, targetLogin);
     if (!targetUser) {
         printf("User not found.\n");
-        return;
+        return 0;
     }
     targetUser->sanctionLimit = limit;
-    storeUsers(db);
+    if (!storeUsers(db)) {
+        printf("Error: Failed to save restriction changes.\n");
+        targetUser->sanctionLimit = 0; 
+        return 0;
+    }
     printf("Restrictions set successfully!\n");
+
+    return 0;
 }
 
-void handleUserRestriction(UserDatabase* db) {
-    char targetLogin[LOGIN + 1], limitStr[10], confirm[10];
+
+
+int handleUserRestriction(UserDatabase* db) {
+    char targetLogin[LOGIN + 2], limitStr[10], confirm[10];
+    
     printf("Enter login to restrict: ");
-    if (!fgets(targetLogin, sizeof(targetLogin), stdin)) return;
+    if (!fgets(targetLogin, sizeof(targetLogin), stdin)) return 0;
     targetLogin[strcspn(targetLogin, "\n")] = '\0';
 
     printf("Set command limit: ");
-    if (!fgets(limitStr, sizeof(limitStr), stdin)) return;
+    if (!fgets(limitStr, sizeof(limitStr), stdin)) return 0;
     limitStr[strcspn(limitStr, "\n")] = '\0';
 
+
     printf("Enter confirmation code: ");
-    if (!fgets(confirm, sizeof(confirm), stdin)) return;
+    if (!fgets(confirm, sizeof(confirm), stdin)) return 0;
     confirm[strcspn(confirm, "\n")] = '\0';
 
     if (!checkRestrictionInput(targetLogin, limitStr, confirm)) {
         printf("Invalid input or wrong confirmation code.\n");
-        return;
+        return 0;
     }
 
     int limit = atoi(limitStr);
     setUserRestriction(db, targetLogin, limit);
+
+    return 0;
 }
 
 int fetchUsers(UserDatabase* db) {
@@ -263,13 +322,15 @@ int fetchUsers(UserDatabase* db) {
     return 1;
 }
 
-void cleanupDatabase(UserDatabase* db) {
+int cleanupDatabase(UserDatabase* db) {
     int i = 0;
     while (i < db->count) {
         free(db->users[i]);
         i++;
     }
     db->count = 0;
+
+    return 0;
 }
 
 int addUser(UserDatabase* db, const char *login, long int pin) {
@@ -297,12 +358,19 @@ int addUser(UserDatabase* db, const char *login, long int pin) {
 
     db->users[db->count] = newUser;
     db->count++;
-    storeUsers(db);
+    
+    if (!storeUsers(db)) {
+        printf("Error: Failed to save new user to database.\n");
+        free(newUser);
+        db->users[db->count - 1] = NULL;
+        db->count--;
+        return 0;
+    }
     printf("User registered successfully!\n");
     return 1;
 }
 
-void userSession(UserDatabase* db, const User* currentUser) {
+int userSession(UserDatabase* db, const User* currentUser) {
     char input[10];
     int sessionCommandCount = 0;
 
@@ -317,7 +385,7 @@ void userSession(UserDatabase* db, const User* currentUser) {
 
         if (strcmp(input, "5") == 0) {
             printf("Signing out.\n");
-            return;
+            return 0;
         }
 
         if (currentUser->sanctionLimit > 0 && sessionCommandCount >= currentUser->sanctionLimit) {
@@ -345,9 +413,11 @@ void userSession(UserDatabase* db, const User* currentUser) {
             printf("Unknown command entered.\n");
         }
     }
+
+    return 0;
 }
 
-void loginScreen(UserDatabase* db) {
+int loginScreen(UserDatabase* db) {
     fetchUsers(db);
 
     while (1) {
@@ -413,12 +483,19 @@ void loginScreen(UserDatabase* db) {
             }
         }
     }
-    storeUsers(db);
+    if (!storeUsers(db)) {
+        printf("Warning: Failed to save user data on exit.\n");
+    }
+
+    return 0;
 }
 
 int main() {
     UserDatabase db;
-    setupDatabase(&db, "users.txt");
+    if (!setupDatabase(&db, "users.txt")) {
+        printf("Failed to initialize database. Exiting.\n");
+        return 1;
+    }
     int running = 1;
 
     while (running) {

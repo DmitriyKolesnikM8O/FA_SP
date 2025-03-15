@@ -167,7 +167,7 @@ int main(int argc, char **argv) {
 
     printf("Starting with %d women and %d men, max capacity = %d\n", women_threads, men_threads, max_capacity);
 
-    // Создание потоков
+    
     for (int i = 0; i < women_threads; i++) {
         if (pthread_create(&threads[i], NULL, woman_thread, NULL) != 0) {
             perror("Failed to create woman thread");

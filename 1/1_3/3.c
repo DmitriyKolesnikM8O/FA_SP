@@ -8,49 +8,50 @@
 #include <string.h>
 
 int N;
-sem_t *forks;  // Динамический массив семафоров для вилок
-sem_t mutex;   // Семафор для предотвращения deadlock
-int meals_count = 10;  // Количество приемов пищи
-int use_synchronization = 1;  // Флаг для включения/выключения синхронизации
+sem_t *forks;  sem_t mutex;   
+int meals_count = 10;  
+int use_synchronization = 1;  
 
-void* philosopher(void* num) {
+
+void* dining_person(void* num) {
     int id = *((int*)num);
     int left_fork = id;
     int right_fork = (id + 1) % N;
     int meals_eaten = 0;
 
     while (meals_eaten < meals_count) {
-        printf("Философ %d думает... (осталось еды: %d)\n", id + 1, meals_count - meals_eaten);
-        usleep((rand() % 500 + 100) * 1000); // Случайное время мышления: 100-600 мс
+        printf("Philosopher %d is thinking... (meals left: %d)\n", id + 1, meals_count - meals_eaten);
+        usleep((rand() % 500 + 100) * 1000); 
 
         if (use_synchronization) {
-            sem_wait(&mutex);  // Ограничиваем число философов, берущих вилки
+            sem_wait(&mutex);  
         }
 
         sem_wait(&forks[left_fork]);
-        printf("Философ %d взял левую вилку %d\n", id + 1, left_fork + 1);
+        printf("Philosopher %d picked up left fork %d\n", id + 1, left_fork + 1);
 
-        // Симуляция deadlock без синхронизации: все берут левую вилку и ждут правую
+        
         sem_wait(&forks[right_fork]);
-        printf("Философ %d взял правую вилку %d\n", id + 1, right_fork + 1);
+        printf("Philosopher %d picked up right fork %d\n", id + 1, right_fork + 1);
 
         if (use_synchronization) {
-            sem_post(&mutex);  // Освобождаем доступ для других
+            sem_post(&mutex);  
         }
 
-        printf("Философ %d ест... (осталось еды: %d)\n", id + 1, meals_count - meals_eaten - 1);
-        usleep((rand() % 500 + 200) * 1000); // Случайное время еды: 200-700 мс
+        printf("Philosopher %d is eating... (meals left: %d)\n", id + 1, meals_count - meals_eaten - 1);
+        usleep((rand() % 500 + 200) * 1000); 
         meals_eaten++;
 
         sem_post(&forks[left_fork]);
-        printf("Философ %d положил левую вилку %d\n", id + 1, left_fork + 1);
+        printf("Philosopher %d put down left fork %d\n", id + 1, left_fork + 1);
         sem_post(&forks[right_fork]);
-        printf("Философ %d положил правую вилку %d\n", id + 1, right_fork + 1);
+        printf("Philosopher %d put down right fork %d\n", id + 1, right_fork + 1);
     }
 
-    printf("Философ %d завершил трапезу.\n", id + 1);
+    printf("Philosopher %d has finished dining.\n", id + 1);
     return NULL;
 }
+
 
 int main(int argc, char *argv[]) {
     srand(time(NULL));
@@ -58,78 +59,93 @@ int main(int argc, char *argv[]) {
     if (argc != 2 && argc != 3) {
         fprintf(stderr, "Usage: %s <N> [nosync]\n", argv[0]);
         fprintf(stderr, "  <N> - number of philosophers\n");
-        fprintf(stderr, "  nosync - disable synchronization to show deadlock\n");
+        fprintf(stderr, "  nosync - disable synchronization to demonstrate deadlock\n");
         return 1;
     }
 
     char *endptr;
     long N_long = strtol(argv[1], &endptr, 10);
     if (*endptr != '\0' || N_long <= 1 || N_long > INT_MAX) {
-        fprintf(stderr, "Ошибка: N должно быть целым числом > 1 и < %d\n", INT_MAX);
+        fprintf(stderr, "Error: N must be an integer > 1 and < %d\n", INT_MAX);
         return 1;
     }
     N = (int)N_long;
 
     if (argc == 3 && strcmp(argv[2], "nosync") == 0) {
         use_synchronization = 0;
-        printf("Запуск без синхронизации — возможен deadlock!\n");
+        printf("Running without synchronization — deadlock possible!\n");
     } else {
-        printf("Запуск с синхронизацией (mutex = %d).\n", N - 1);
+        printf("Running with synchronization (mutex = %d).\n", N - 1);
     }
 
-    // Выделение памяти
+    // Allocate memory
     forks = malloc(N * sizeof(sem_t));
     if (!forks) {
-        fprintf(stderr, "Ошибка: не удалось выделить память для вилок.\n");
+        fprintf(stderr, "Error: Failed to allocate memory for forks.\n");
         return 1;
     }
 
     pthread_t *philosophers = malloc(N * sizeof(pthread_t));
     int *ids = malloc(N * sizeof(int));
     if (!philosophers || !ids) {
-        fprintf(stderr, "Ошибка: не удалось выделить память для потоков.\n");
+        fprintf(stderr, "Error: Failed to allocate memory for threads.\n");
         free(forks);
         free(philosophers);
         free(ids);
         return 1;
     }
 
-    // Инициализация семафоров
-    for (int i = 0; i < N; i++) {
+    // Initialize semaphores with error tracking
+    int i;
+    int success = 1;
+    for (i = 0; i < N && success; i++) {
         if (sem_init(&forks[i], 0, 1) != 0) {
-            fprintf(stderr, "Ошибка: не удалось инициализировать семафор %d.\n", i);
-            goto cleanup;
+            fprintf(stderr, "Error: Failed to initialize semaphore %d.\n", i);
+            success = 0;
         }
     }
-    if (sem_init(&mutex, 0, N - 1) != 0) {
-        fprintf(stderr, "Ошибка: не удалось инициализировать семафор mutex.\n");
-        goto cleanup;
+
+    if (success && sem_init(&mutex, 0, N - 1) != 0) {
+        fprintf(stderr, "Error: Failed to initialize mutex semaphore.\n");
+        success = 0;
     }
 
-    // Создание потоков
-    for (int i = 0; i < N; i++) {
+    if (!success) {
+        // Clean up initialized semaphores before exiting
+        for (int j = 0; j < i; j++) {
+            sem_destroy(&forks[j]);
+        }
+        free(forks);
+        free(philosophers);
+        free(ids);
+        return 1;
+    }
+
+    // Create threads
+    for (i = 0; i < N && success; i++) {
         ids[i] = i;
-        if (pthread_create(&philosophers[i], NULL, philosopher, &ids[i]) != 0) {
-            fprintf(stderr, "Ошибка: не удалось создать поток для философа %d.\n", i + 1);
-            goto cleanup;
+        if (pthread_create(&philosophers[i], NULL, dining_person, &ids[i]) != 0) {
+            fprintf(stderr, "Error: Failed to create thread for philosopher %d.\n", i + 1);
+            success = 0;
         }
     }
 
-    // Ожидание завершения
-    for (int i = 0; i < N; i++) {
-        pthread_join(philosophers[i], NULL);
+    if (success) {
+        // Wait for threads to finish
+        for (i = 0; i < N; i++) {
+            pthread_join(philosophers[i], NULL);
+        }
+        printf("All philosophers have finished dining.\n");
     }
 
-    printf("Все философы завершили трапезу.\n");
-
-cleanup:
-    // Освобождение ресурсов
-    for (int i = 0; i < N; i++) {
+    // Free resources
+    for (i = 0; i < N; i++) {
         sem_destroy(&forks[i]);
     }
     sem_destroy(&mutex);
     free(forks);
     free(philosophers);
     free(ids);
-    return 0;
+
+    return success ? 0 : 1;
 }
