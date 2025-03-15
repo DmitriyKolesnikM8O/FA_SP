@@ -8,147 +8,263 @@
 #include <grp.h>
 #include <time.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/fs.h>
 
 #define PATH_MAX 4096
 
-typedef enum {
-    SUCCESS,
-    INPUT_FILE_ERROR,
-    MEMORY_ALLOCATED_ERROR,
-    INCORRECT_ARG_FUNCTION
-} type_error;
+int determine_permissions(char *perm_string, struct stat *stats) {
+    int temporary_mode;
+    char temp_char;
 
-typedef struct {
-    type_error type;
-    const char *func;
-    const char *msg;
-} error_msg;
-
-int print_error(error_msg error) {
-    if (error.type) {
-        fprintf(stderr, "Error - %s: %s\n", error.func, error.msg);
-        return error.type;
+    
+    if (perm_string == NULL) {
+        fprintf(stderr, "Error in determine_permissions: Invalid input received\n");
+        return 1;
     }
+    if (stats == NULL) {
+        fprintf(stderr, "Error in determine_permissions: Invalid input received\n");
+        return 1;
+    }
+
+    
+    temporary_mode = stats->st_mode;
+
+    
+    if (S_ISDIR(temporary_mode) == 1) {
+        temp_char = 'd';
+        perm_string[0] = temp_char;
+    }
+    else if (S_ISLNK(temporary_mode) == 1) {
+        temp_char = 'l';
+        perm_string[0] = temp_char;
+    }
+    else if (S_ISFIFO(temporary_mode) == 1) {
+        temp_char = 'p';
+        perm_string[0] = temp_char;
+    }
+    else if (S_ISCHR(temporary_mode) == 1) {
+        temp_char = 'c';
+        perm_string[0] = temp_char;
+    }
+    else if (S_ISBLK(temporary_mode) == 1) {
+        temp_char = 'b';
+        perm_string[0] = temp_char;
+    }
+    else if (S_ISSOCK(temporary_mode) == 1) {
+        temp_char = 's';
+        perm_string[0] = temp_char;
+    }
+    else {
+        temp_char = '-';
+        perm_string[0] = temp_char;
+    }
+
+        if ((temporary_mode & S_IRUSR) != 0) {
+        perm_string[1] = 'r';
+    } else {
+        perm_string[1] = '-';
+    }
+    if ((temporary_mode & S_IWUSR) != 0) {
+        perm_string[2] = 'w';
+    } else {
+        perm_string[2] = '-';
+    }
+    if ((temporary_mode & S_IXUSR) != 0) {
+        perm_string[3] = 'x';
+    } else {
+        perm_string[3] = '-';
+    }
+
+    
+    if ((temporary_mode & S_IRGRP) != 0) {
+        perm_string[4] = 'r';
+    } else {
+        perm_string[4] = '-';
+    }
+    if ((temporary_mode & S_IWGRP) != 0) {
+        perm_string[5] = 'w';
+    } else {
+        perm_string[5] = '-';
+    }
+    if ((temporary_mode & S_IXGRP) != 0) {
+        perm_string[6] = 'x';
+    } else {
+        perm_string[6] = '-';
+    }
+
+    
+    if ((temporary_mode & S_IROTH) != 0) {
+        perm_string[7] = 'r';
+    } else {
+        perm_string[7] = '-';
+    }
+    if ((temporary_mode & S_IWOTH) != 0) {
+        perm_string[8] = 'w';
+    } else {
+        perm_string[8] = '-';
+    }
+    if ((temporary_mode & S_IXOTH) != 0) {
+        perm_string[9] = 'x';
+    } else {
+        perm_string[9] = '-';
+    }
+
+    
+    perm_string[10] = '\0';
+
     return 0;
 }
 
-void format_time(time_t mtime, char *time_str) {
-    struct tm *tm_info = localtime(&mtime);
-    time_t now;
-    time(&now);
-    double diff = difftime(now, mtime);
+void format_time_string(time_t mod_time, char *time_output) {
+    struct tm *time_data;
+    time_t current_time;
+    double time_difference;
+    char temporary_format[20];
+    int months_threshold;
 
-    if (diff > 6 * 30 * 24 * 60 * 60) {
-        strftime(time_str, 20, "%b %d  %Y", tm_info);
+    
+    time_data = localtime(&mod_time);
+    if (time_data == NULL) {
+        strcpy(time_output, "Invalid timestamp");
+        return;
+    }
+
+    
+    current_time = time(NULL);
+    if (current_time == (time_t)-1) {
+        strcpy(time_output, "Failed to fetch time");
+        return;
+    }
+
+    
+    time_difference = difftime(current_time, mod_time);
+
+    
+    months_threshold = 6 * 30 * 24 * 60 * 60;
+
+    
+    if (time_difference > months_threshold) {
+        strcpy(temporary_format, "%b %d  %Y");
     } else {
-        strftime(time_str, 20, "%b %d %H:%M", tm_info);
+        strcpy(temporary_format, "%b %d %H:%M");
     }
+
+    
+    strftime(time_output, 20, temporary_format, time_data);
 }
 
-error_msg access_rights(char *res, struct stat *file_info) {
-    if (!res || !file_info) {
-        return (error_msg){INCORRECT_ARG_FUNCTION, __func__, "null pointer received"};
+int get_disk_block(const char *file_path, struct stat *stats) {
+    int file_handle;
+    int block_number;
+    int result_of_ioctl;
+
+    
+    if (S_ISREG(stats->st_mode) == 0) {
+        if (S_ISDIR(stats->st_mode) == 0) {
+            return -1;
+        }
     }
 
     
-    if (S_ISDIR(file_info->st_mode)) res[0] = 'd';
-    else if (S_ISLNK(file_info->st_mode)) res[0] = 'l';
-    else if (S_ISFIFO(file_info->st_mode)) res[0] = 'p';
-    else if (S_ISCHR(file_info->st_mode)) res[0] = 'c';
-    else if (S_ISBLK(file_info->st_mode)) res[0] = 'b';
-    else if (S_ISSOCK(file_info->st_mode)) res[0] = 's';
-    else res[0] = '-';
+    file_handle = open(file_path, O_RDONLY);
+    if (file_handle < 0) {
+        return -1;
+    }
 
     
-    res[1] = (file_info->st_mode & S_IRUSR) ? 'r' : '-';
-    res[2] = (file_info->st_mode & S_IWUSR) ? 'w' : '-';
-    res[3] = (file_info->st_mode & S_IXUSR) ? 'x' : '-';
+    block_number = 0;
 
     
-    res[4] = (file_info->st_mode & S_IRGRP) ? 'r' : '-';
-    res[5] = (file_info->st_mode & S_IWGRP) ? 'w' : '-';
-    res[6] = (file_info->st_mode & S_IXGRP) ? 'x' : '-';
+    result_of_ioctl = ioctl(file_handle, FIBMAP, &block_number);
+    if (result_of_ioctl != 0) {
+        close(file_handle);
+        return -1;
+    }
 
     
-    res[7] = (file_info->st_mode & S_IROTH) ? 'r' : '-';
-    res[8] = (file_info->st_mode & S_IWOTH) ? 'w' : '-';
-    res[9] = (file_info->st_mode & S_IXOTH) ? 'x' : '-';
-    res[10] = '\0';
+    close(file_handle);
 
-    return (error_msg){SUCCESS, "", ""};
+    return block_number;
 }
 
-error_msg print_file_info(const char *file_name) {
-    if (!file_name) {
-        return (error_msg){INCORRECT_ARG_FUNCTION, __func__, "null pointer received"};
+int process_file(const char *file_path) {
+    struct stat file_stats;
+
+    if (!file_path) {
+        fprintf(stderr, "Error in process_file: File path not provided\n");
+        return 1;
     }
 
-    struct stat file_info;
-    if (stat(file_name, &file_info) == -1) {
-        return (error_msg){INPUT_FILE_ERROR, __func__, "stat failed"};
+    if (stat(file_path, &file_stats) != 0) {
+        fprintf(stderr, "Error in process_file: Could not retrieve file information\n");
+        return 1;
     }
 
-    char rights[11];
-    error_msg err = access_rights(rights, &file_info);
-    if (err.type) return err;
+    char permissions[11];
+    if (determine_permissions(permissions, &file_stats) != 0) {
+        return 1;
+    }
 
-    struct passwd *pw = getpwuid(file_info.st_uid);
-    struct group *gr = getgrgid(file_info.st_gid);
-    char *user_name = pw ? pw->pw_name : "unknown";
-    char *group_name = gr ? gr->gr_name : "unknown";
+    struct passwd *owner = getpwuid(file_stats.st_uid);
+    struct group *group = getgrgid(file_stats.st_gid);
+    char *owner_name = owner ? owner->pw_name : "unknown";
+    char *group_name = group ? group->gr_name : "unknown";
 
-    char time_str[20];
-    format_time(file_info.st_mtime, time_str);
+    char time_buffer[20];
+    format_time_string(file_stats.st_mtime, time_buffer);
 
-    
-    printf("%s %2lu %s %s %6lu %s %lu %s\n",
-           rights, (unsigned long)file_info.st_nlink, user_name, group_name,
-           (unsigned long)file_info.st_size, time_str, (unsigned long)file_info.st_ino, file_name);
+    int block_number = get_disk_block(file_path, &file_stats);
 
-    return (error_msg){SUCCESS, "", ""};
+    printf("%s %2lu %s %s %6lu %s %d %s\n",
+           permissions, (unsigned long)file_stats.st_nlink, owner_name, group_name,
+           (unsigned long)file_stats.st_size, time_buffer, block_number, file_path);
+
+    return 0;
 }
 
-error_msg process_directory(const char *dir_name) {
-    if (!dir_name) {
-        return (error_msg){INCORRECT_ARG_FUNCTION, __func__, "null pointer received"};
+int explore_directory(const char *folder_path) {
+    if (!folder_path) {
+        fprintf(stderr, "Error in explore_directory: Invalid directory path\n");
+        return 1;
     }
 
-    DIR *dir = opendir(dir_name);
-    if (!dir) {
-        return (error_msg){INPUT_FILE_ERROR, __func__, "cannot open directory"};
+    DIR *directory = opendir(folder_path);
+    if (!directory) {
+        fprintf(stderr, "Error in explore_directory: Cannot access directory\n");
+        return 1;
     }
 
-    printf("Directory: %s\n", dir_name);
+    printf("Folder contents: %s\n", folder_path);
     struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+    char full_path[PATH_MAX];
+
+    while ((entry = readdir(directory)) != NULL) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) {
             continue;
         }
 
-        char full_path[PATH_MAX];
-        snprintf(full_path, sizeof(full_path), "%s/%s", dir_name, entry->d_name);
-
-        error_msg err = print_file_info(full_path);
-        if (err.type) {
-            closedir(dir);
-            return err;
+        snprintf(full_path, PATH_MAX, "%s/%s", folder_path, entry->d_name);
+        if (process_file(full_path) != 0) {
+            closedir(directory);
+            return 1;
         }
     }
 
-    closedir(dir);
-    return (error_msg){SUCCESS, "", ""};
+    closedir(directory);
+    return 0;
 }
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <directory1> [directory2 ...]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <dir1> [dir2 ...]\n", argv[0]);
         return 1;
     }
 
     for (int i = 1; i < argc; i++) {
-        error_msg err = process_directory(argv[i]);
-        if (err.type) {
-            return print_error(err);
+        if (explore_directory(argv[i]) != 0) {
+            return 1;
         }
         if (i < argc - 1) {
             printf("\n");
