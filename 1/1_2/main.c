@@ -21,17 +21,20 @@ int countMaskedValues(int file_count, char *files[], uint32_t mask) {
         uint32_t current_value;
         size_t number_of_bytes_read;
 
+        printf("Checking file %s with mask: 0x%08X\n", files[current_file_index], mask);
+
         while (1) {
-            number_of_bytes_read = fread(&current_value, 1, sizeof(uint32_t), file_pointer);
-            if (number_of_bytes_read != sizeof(uint32_t)) {
+            number_of_bytes_read = fread(&current_value, sizeof(uint32_t), 1, file_pointer);
+            if (number_of_bytes_read != 1) {
                 break;
             }
             if (ferror(file_pointer)) {
                 perror("Reading file failed");
                 break;
             }
-            uint32_t masked_result = current_value & mask;
-            if (masked_result == mask) {
+
+            if ((current_value & mask) == (current_value & current_value & mask)) {
+                printf("Match found: 0x%08X\n", current_value);
                 total_matches = total_matches + 1;
             }
         }
@@ -198,13 +201,24 @@ int replicateFilesN(int file_count, char *files[], int N) {
     }
     int pid_count = 0;
 
-    
     for (int file_idx = 0; file_idx < file_count; file_idx++) {
         for (int copy_idx = 0; copy_idx < N; copy_idx++) {
             pid_t pid = fork();
             if (pid == 0) {
                 char new_filename[256];
-                snprintf(new_filename, sizeof(new_filename), "%s_%d", files[file_idx], copy_idx + 1);
+                char *dot = strrchr(files[file_idx], '.');
+                if (dot) {
+                    
+                    size_t name_length = dot - files[file_idx];
+                    strncpy(new_filename, files[file_idx], name_length);
+                    new_filename[name_length] = '\0';
+                    snprintf(new_filename + name_length, sizeof(new_filename) - name_length, 
+                            "_%d%s", copy_idx + 1, dot);
+                } else {
+                    
+                    snprintf(new_filename, sizeof(new_filename), "%s_%d", 
+                            files[file_idx], copy_idx + 1);
+                }
                 
                 FILE *source = fopen(files[file_idx], "rb");
                 if (!source) {
@@ -216,7 +230,6 @@ int replicateFilesN(int file_count, char *files[], int N) {
                     exit(2);
                 }
 
-                
                 uint8_t buffer[4096];
                 size_t bytes;
                 while ((bytes = fread(buffer, 1, sizeof(buffer), source)) > 0) {
@@ -236,7 +249,6 @@ int replicateFilesN(int file_count, char *files[], int N) {
         }
     }
 
-    
     int remaining = pid_count;
     int failures = 0;
     while (remaining > 0) {
