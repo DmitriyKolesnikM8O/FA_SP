@@ -18,30 +18,19 @@ int countMaskedValues(int file_count, char *files[], uint32_t mask) {
         }
 
         int total_matches = 0;
-        uint32_t current_value;
-        size_t number_of_bytes_read;
+        uint32_t value;
 
         printf("Checking file %s with mask: 0x%08X\n", files[current_file_index], mask);
 
-        while (1) {
-            number_of_bytes_read = fread(&current_value, sizeof(uint32_t), 1, file_pointer);
-            if (number_of_bytes_read != 1) {
-                break;
-            }
-            if (ferror(file_pointer)) {
-                perror("Reading file failed");
-                break;
-            }
-
-            if ((current_value & mask) == (current_value & current_value & mask)) {
-                printf("Match found: 0x%08X\n", current_value);
+        while (fread(&value, sizeof(uint32_t), 1, file_pointer) == 1) {
+            uint32_t masked_value = value & mask;
+            printf("Value: 0x%08X, Masked: 0x%08X, Target: 0x%08X\n", 
+                   value, masked_value, mask);
+            if (masked_value == mask) {
                 total_matches = total_matches + 1;
             }
         }
 
-        if (number_of_bytes_read > 0 && !feof(file_pointer)) {
-            printf("Notice: %s ends with an incomplete 4-byte section\n", files[current_file_index]);
-        }
         printf("%s contains %d matches\n", files[current_file_index], total_matches);
         fclose(file_pointer);
         current_file_index = current_file_index + 1;
