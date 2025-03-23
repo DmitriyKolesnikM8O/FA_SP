@@ -83,15 +83,15 @@ int encryptPin(long int pin, unsigned long *output) {
 
 int setupDatabase(UserDatabase* db, const char* filePath) {
     if (db == NULL) {
-        printf("Error: Invalid database pointer provided.\n");
+        printf("Ошибка: неверный указатель на базу данных.\n");
         return 0;
     }
     if (filePath == NULL) {
-        printf("Error: Invalid file path provided.\n");
+        printf("Ошибка: неверный путь к файлу.\n");
         return 0;
     }
     if (strlen(filePath) >= 256) {
-        printf("Error: File path exceeds maximum length of 255 characters.\n");
+        printf("Ошибка: путь к файлу превышает максимальную длину в 255 символов.\n");
         return 0;
     }
 
@@ -118,9 +118,9 @@ int showCurrentTime() {
     time(&t);
     struct tm *tm = localtime(&t);
     if (tm) {
-        printf("Time now: %02d:%02d:%02d\n", tm->tm_hour, tm->tm_min, tm->tm_sec);
+        printf("Текущее время: %02d:%02d:%02d\n", tm->tm_hour, tm->tm_min, tm->tm_sec);
     } else {
-        printf("Failed to get current time.\n");
+        printf("Ошибка: не удалось получить текущее время.\n");
     }
 
     return 0;
@@ -131,9 +131,9 @@ int showCurrentDate() {
     time(&t);
     struct tm *tm = localtime(&t);
     if (tm) {
-        printf("Date today: %02d.%02d.%04d\n", tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900);
+        printf("Текущая дата: %02d.%02d.%04d\n", tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900);
     } else {
-        printf("Failed to get current date.\n");
+        printf("Ошибка: не удалось получить текущую дату.\n");
     }
 
     return 0;
@@ -177,46 +177,46 @@ int calculateTimeElapsed(int day, int month, int year, const char *flag) {
 
     time_t past = mktime(&input);
     if (past == -1) {
-        printf("Failed to process the date.\n");
-        return 0 ;
+        printf("Ошибка: не удалось обработать дату.\n");
+        return 0;
     }
 
     time_t now;
     time(&now);
     double diff = difftime(now, past);
     if (diff < 0) {
-        printf("Error: Date is in the future.\n");
-        return 0 ;
+        printf("Ошибка: указанная дата находится в будущем.\n");
+        return 0;
     }
 
-    if (flag[1] == 's') printf("Time passed: %.0f seconds\n", diff);
-    else if (flag[1] == 'm') printf("Time passed: %.0f minutes\n", diff / 60);
-    else if (flag[1] == 'h') printf("Time passed: %.0f hours\n", diff / 3600);
-    else if (flag[1] == 'y') printf("Time passed: %.2f years\n", diff / (3600 * 24 * 365.25));
+    if (flag[1] == 's') printf("Прошло времени: %.0f секунд\n", diff);
+    else if (flag[1] == 'm') printf("Прошло времени: %.0f минут\n", diff / 60);
+    else if (flag[1] == 'h') printf("Прошло времени: %.0f часов\n", diff / 3600);
+    else if (flag[1] == 'y') printf("Прошло времени: %.2f лет\n", diff / (3600 * 24 * 365.25));
 
     return 0;
 }
 
 int storeUsers(const UserDatabase* db) {
     if (db == NULL) {
-        printf("Error: Invalid database pointer provided.\n");
+        printf("Ошибка: неверный указатель на базу данных.\n");
         return 0;
     }
 
     FILE* file = fopen(db->dbFilePath, "wb");
     if (!file) {
-        perror("Error opening file for saving user data");
+        perror("Ошибка открытия файла для сохранения данных пользователей");
         return 0;
     }
     int i = 0;
     while (i < db->count) {
         if (db->users[i] == NULL) {
-            printf("Error: Null user entry found at index %d.\n", i);
+            printf("Ошибка: обнаружена пустая запись пользователя с индексом %d.\n", i);
             fclose(file);
             return 0;
         }
         if (fwrite(db->users[i], sizeof(User), 1, file) != 1) {
-            printf("Error: Failed to write user data for user %d.\n", i);
+            printf("Ошибка: не удалось записать данные пользователя %d.\n", i);
             fclose(file);
             return 0;
         }
@@ -257,16 +257,16 @@ int checkRestrictionInput(const char *targetLogin, const char *limitStr, const c
 int setUserRestriction(UserDatabase* db, const char *targetLogin, int limit) {
     User *targetUser = locateUser(db, targetLogin);
     if (!targetUser) {
-        printf("User not found.\n");
+        printf("Ошибка: пользователь не найден.\n");
         return 0;
     }
     targetUser->sanctionLimit = limit;
     if (!storeUsers(db)) {
-        printf("Error: Failed to save restriction changes.\n");
+        printf("Ошибка: не удалось сохранить изменения ограничений.\n");
         targetUser->sanctionLimit = 0; 
         return 0;
     }
-    printf("Restrictions set successfully!\n");
+    printf("Ограничения успешно установлены!\n");
 
     return 0;
 }
@@ -338,21 +338,21 @@ int cleanupDatabase(UserDatabase* db) {
 
 int addUser(UserDatabase* db, const char *login, long int pin) {
     if (db->count >= MAX_USERS) {
-        printf("User limit reached.\n");
+        printf("Ошибка: достигнут лимит пользователей.\n");
         return 0;
     }
     if (verifyLogin(login) == -1) {
-        printf("Error: Login must be 1-6 alphanumeric characters.\n");
+        printf("Ошибка: логин должен содержать от 1 до %d букв и цифр.\n", LOGIN);
         return 0;
     }
     if (locateUser(db, login)) {
-        printf("This login is already in use!\n");
+        printf("Ошибка: такой логин уже существует!\n");
         return 0;
     }
 
     User *newUser = malloc(sizeof(User));
     if (!newUser) {
-        printf("Failed to allocate memory.\n");
+        printf("Ошибка: не удалось выделить память.\n");
         return 0;
     }
     strcpy(newUser->login, login);
@@ -363,13 +363,13 @@ int addUser(UserDatabase* db, const char *login, long int pin) {
     db->count++;
     
     if (!storeUsers(db)) {
-        printf("Error: Failed to save new user to database.\n");
+        printf("Ошибка: не удалось сохранить нового пользователя в базе данных.\n");
         free(newUser);
         db->users[db->count - 1] = NULL;
         db->count--;
         return 0;
     }
-    printf("User registered successfully!\n");
+    printf("Пользователь успешно зарегистрирован!\n");
     return 1;
 }
 

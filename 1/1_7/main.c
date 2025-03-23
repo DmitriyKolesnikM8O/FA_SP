@@ -14,6 +14,16 @@
 
 #define PATH_MAX 4096
 
+
+#define COLOR_RESET   "\x1b[0m"    // Сброс цвета (используется после каждого цветного вывода)
+#define COLOR_BLUE    "\x1b[34m"   // Синий - для директорий
+#define COLOR_GREEN   "\x1b[32m"   // Зеленый - для сокетов
+#define COLOR_CYAN    "\x1b[36m"   // Голубой - для символических ссылок
+#define COLOR_RED     "\x1b[31m"   // Красный - для исполняемых файлов
+#define COLOR_YELLOW  "\x1b[33m"   // Желтый - для именованных каналов (FIFO)
+#define COLOR_MAGENTA "\x1b[35m"   // Пурпурный - для блочных и символьных устройств
+#define COLOR_WHITE   "\x1b[37m"   // Белый - для обычных файлов
+
 int determine_permissions(char *perm_string, struct stat *stats) {
     int temporary_mode;
     char temp_char;
@@ -127,14 +137,14 @@ int format_time_string(time_t mod_time, char *time_output) {
     
     time_data = localtime(&mod_time);
     if (time_data == NULL) {
-        strcpy(time_output, "Invalid timestamp");
+        strcpy(time_output, "Неверная временная метка");
         return 0;
     }
 
     
     current_time = time(NULL);
     if (current_time == (time_t)-1) {
-        strcpy(time_output, "Failed to fetch time");
+        strcpy(time_output, "Не удалось получить время");
         return 0;
     }
 
@@ -195,12 +205,12 @@ int process_file(const char *file_path) {
     struct stat file_stats;
 
     if (!file_path) {
-        fprintf(stderr, "Error in process_file: File path not provided\n");
+        fprintf(stderr, "Ошибка в process_file: путь к файлу не указан\n");
         return 1;
     }
 
     if (stat(file_path, &file_stats) != 0) {
-        fprintf(stderr, "Error in process_file: Could not retrieve file information\n");
+        fprintf(stderr, "Ошибка в process_file: не удалось получить информацию о файле\n");
         return 1;
     }
 
@@ -219,26 +229,44 @@ int process_file(const char *file_path) {
 
     int block_number = get_disk_block(file_path, &file_stats);
 
-    printf("%s %2lu %s %s %6lu %s %d %s\n",
+    
+    const char *color = COLOR_RESET;
+    if (S_ISDIR(file_stats.st_mode)) {
+        color = COLOR_BLUE;
+    } else if (S_ISLNK(file_stats.st_mode)) {
+        color = COLOR_CYAN;
+    } else if (S_ISFIFO(file_stats.st_mode)) {
+        color = COLOR_YELLOW;
+    } else if (S_ISCHR(file_stats.st_mode)) {
+        color = COLOR_MAGENTA;
+    } else if (S_ISBLK(file_stats.st_mode)) {
+        color = COLOR_MAGENTA;
+    } else if (S_ISSOCK(file_stats.st_mode)) {
+        color = COLOR_GREEN;
+    } else if (file_stats.st_mode & S_IXUSR) {
+        color = COLOR_RED;
+    }
+
+    printf("%s %2lu %s %s %6lu %s %d %s%s%s\n",
            permissions, (unsigned long)file_stats.st_nlink, owner_name, group_name,
-           (unsigned long)file_stats.st_size, time_buffer, block_number, file_path);
+           (unsigned long)file_stats.st_size, time_buffer, block_number, color, file_path, COLOR_RESET);
 
     return 0;
 }
 
 int explore_directory(const char *folder_path) {
     if (!folder_path) {
-        fprintf(stderr, "Error in explore_directory: Invalid directory path\n");
+        fprintf(stderr, "Ошибка в explore_directory: неверный путь к каталогу\n");
         return 1;
     }
 
     DIR *directory = opendir(folder_path);
     if (!directory) {
-        fprintf(stderr, "Error in explore_directory: Cannot access directory\n");
+        fprintf(stderr, "Ошибка в explore_directory: не удалось получить доступ к каталогу\n");
         return 1;
     }
 
-    printf("Folder contents: %s\n", folder_path);
+    printf("Содержимое каталога: %s\n", folder_path);
     struct dirent *entry;
     char full_path[PATH_MAX];
 
@@ -260,7 +288,7 @@ int explore_directory(const char *folder_path) {
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <dir1> [dir2 ...]\n", argv[0]);
+        fprintf(stderr, "Использование: %s <каталог1> [каталог2 ...]\n", argv[0]);
         return 1;
     }
 
