@@ -508,6 +508,11 @@ int loginScreen(UserDatabase* db) {
             continue;
         }
         
+        if (strlen(pinInput) > 1 && pinInput[0] == '0') {
+            printf("Ошибка: PIN-код не может начинаться с нуля.\n");
+            continue;
+        }
+        
         int validPin = 1;
         for (int i = 0; pinInput[i] != '\0'; i++) {
             if (!isdigit(pinInput[i])) {
