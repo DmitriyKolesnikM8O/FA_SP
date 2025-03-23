@@ -250,7 +250,7 @@ int handleTimeElapsed() {
 int checkRestrictionInput(const char *targetLogin, const char *limitStr, const char *confirm) {
     if (verifyLogin(targetLogin) == -1) return 0;
     int limit = atoi(limitStr);
-    if (limit <= 0 || strcmp(confirm, SANCTION) != 0) return 0;
+    if (limit < 0 || strcmp(confirm, SANCTION) != 0) return 0;
     return 1;
 }
 
@@ -260,10 +260,14 @@ int setUserRestriction(UserDatabase* db, const char *targetLogin, int limit) {
         printf("Ошибка: пользователь не найден.\n");
         return 0;
     }
+    if (limit < 0) {
+        printf("Ошибка: ограничение не может быть отрицательным числом.\n");
+        return 0;
+    }
     targetUser->sanctionLimit = limit;
     if (!storeUsers(db)) {
         printf("Ошибка: не удалось сохранить изменения ограничений.\n");
-        targetUser->sanctionLimit = 0; 
+        targetUser->sanctionLimit = -1;
         return 0;
     }
     printf("Ограничения успешно установлены!\n");
@@ -357,7 +361,7 @@ int addUser(UserDatabase* db, const char *login, long int pin) {
     }
     strcpy(newUser->login, login);
     encryptPin(pin, &newUser->pinHash);
-    newUser->sanctionLimit = 0;
+    newUser->sanctionLimit = -1;
 
     db->users[db->count] = newUser;
     db->count++;
@@ -387,7 +391,7 @@ int userSession(UserDatabase* db, const User* currentUser) {
 
         if (strlen(input) == 0) continue;
 
-        if (currentUser->sanctionLimit > 0 && sessionCommandCount >= currentUser->sanctionLimit) {
+        if (currentUser->sanctionLimit >= 0 && sessionCommandCount >= currentUser->sanctionLimit) {
             printf("Достигнут лимит запросов. Доступна только команда Logout.\n");
             if (strcmp(input, "Logout") == 0) {
                 printf("Выход из системы.\n");
