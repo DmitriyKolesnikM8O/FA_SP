@@ -38,13 +38,16 @@ int getMonthDays(int month, int year) {
 }
 
 int displayMenu() {
-    printf("\nCommand list:\n");
-    printf("  1. Time - display current time\n");
-    printf("  2. Date - display current date\n");
-    printf("  3. HowMuch - calculate elapsed time since a date\n");
-    printf("  4. Sanctions - set restrictions for a user\n");
-    printf("  5. Logout - exit to login menu\n");
-
+    printf("\nДоступные команды:\n");
+    printf("  Time - показать текущее время\n");
+    printf("  Date - показать текущую дату\n");
+    printf("  Howmuch <дата> <флаг> - показать прошедшее время\n");
+    printf("    Пример: Howmuch 01.01.2024 -s\n");
+    printf("    Флаги: -s (секунды), -m (минуты), -h (часы), -y (годы)\n");
+    printf("  Sanctions <username> <число> - установить ограничения\n");
+    printf("    Пример: Sanctions user1 10\n");
+    printf("  Logout - выйти из системы\n");
+    printf("  Help - показать это сообщение\n\n");
     return 0;
 }
 
@@ -371,46 +374,85 @@ int addUser(UserDatabase* db, const char *login, long int pin) {
 }
 
 int userSession(UserDatabase* db, const User* currentUser) {
-    char input[10];
+    char input[256];
     int sessionCommandCount = 0;
 
     while (1) {
-        displayMenu();
-        printf("\nSelect command (1-5): ");
+        printf("\n%s> ", currentUser->login);
         if (!fgets(input, sizeof(input), stdin)) {
-            printf("Session ended with EOF.\n");
+            printf("Сессия завершена.\n");
             break;
         }
         input[strcspn(input, "\n")] = '\0';
 
-        if (strcmp(input, "5") == 0) {
-            printf("Signing out.\n");
-            return 0;
-        }
+        if (strlen(input) == 0) continue;
 
         if (currentUser->sanctionLimit > 0 && sessionCommandCount >= currentUser->sanctionLimit) {
-            printf("Limit reached. Only SignOut is available.\n");
+            printf("Достигнут лимит запросов. Доступна только команда Logout.\n");
+            if (strcmp(input, "Logout") == 0) {
+                printf("Выход из системы.\n");
+                return 0;
+            }
             continue;
         }
 
-        if (strcmp(input, "1") == 0) {
+        if (strcmp(input, "Logout") == 0) {
+            printf("Выход из системы.\n");
+            return 0;
+        }
+        else if (strcmp(input, "Time") == 0) {
             showCurrentTime();
             sessionCommandCount++;
         }
-        else if (strcmp(input, "2") == 0) {
+        else if (strcmp(input, "Date") == 0) {
             showCurrentDate();
             sessionCommandCount++;
         }
-        else if (strcmp(input, "3") == 0) {
-            handleTimeElapsed();
+        else if (strncmp(input, "Howmuch ", 8) == 0) {
+            char dateStr[32], flag[10];
+            if (sscanf(input + 8, "%s %s", dateStr, flag) != 2) {
+                printf("Ошибка: неверный формат команды.\n");
+                printf("Пример: Howmuch 01.01.2024 -s\n");
+                continue;
+            }
+            
+            int day, month, year;
+            if (!checkTimeElapsedInput(dateStr, &day, &month, &year, flag)) {
+                printf("Ошибка: неверный формат даты или флага.\n");
+                printf("Используйте формат: DD.MM.YYYY и флаг -s, -m, -h или -y\n");
+                continue;
+            }
+            
+            calculateTimeElapsed(day, month, year, flag);
             sessionCommandCount++;
         }
-        else if (strcmp(input, "4") == 0) {
-            handleUserRestriction(db);
+        else if (strncmp(input, "Sanctions ", 10) == 0) {
+            char targetLogin[LOGIN + 2], limitStr[10];
+            if (sscanf(input + 10, "%s %s", targetLogin, limitStr) != 2) {
+                printf("Ошибка: неверный формат команды.\n");
+                printf("Пример: Sanctions user1 10\n");
+                continue;
+            }
+
+            printf("Введите код подтверждения: ");
+            char confirm[10];
+            if (!fgets(confirm, sizeof(confirm), stdin)) continue;
+            confirm[strcspn(confirm, "\n")] = '\0';
+
+            if (!checkRestrictionInput(targetLogin, limitStr, confirm)) {
+                printf("Ошибка: неверный ввод или код подтверждения.\n");
+                continue;
+            }
+
+            int limit = atoi(limitStr);
+            setUserRestriction(db, targetLogin, limit);
             sessionCommandCount++;
+        }
+        else if (strcmp(input, "Help") == 0) {
+            displayMenu();
         }
         else {
-            printf("Unknown command entered.\n");
+            printf("Неизвестная команда. Введите Help для списка команд.\n");
         }
     }
 
@@ -421,10 +463,15 @@ int loginScreen(UserDatabase* db) {
     fetchUsers(db);
 
     while (1) {
-        printf("\n1. SignIn\n2. SignUp\n3. Quit\nSelect: ");
+        printf("\n=== Система авторизации ===\n");
+        printf("1. Вход\n");
+        printf("2. Регистрация\n");
+        printf("3. Выход\n");
+        printf("Выберите действие: ");
+        
         char choiceStr[10];
         if (!fgets(choiceStr, sizeof(choiceStr), stdin)) {
-            printf("Terminated with EOF.\n");
+            printf("Программа завершена.\n");
             break;
         }
         choiceStr[strcspn(choiceStr, "\n")] = '\0';
@@ -432,25 +479,25 @@ int loginScreen(UserDatabase* db) {
         char *endptr;
         long choice = strtol(choiceStr, &endptr, 10);
         if (*endptr != '\0' || choice < 1 || choice > 3) {
-            printf("Invalid selection. Use 1-3.\n");
+            printf("Ошибка: выберите число от 1 до 3.\n");
             continue;
         }
         if (choice == 3) {
-            printf("Shutting down.\n");
+            printf("Завершение работы.\n");
             break;
         }
 
         char login[LOGIN + 2];
-        printf("Login (max 6 chars): ");
+        printf("Введите логин (до %d символов, только буквы и цифры): ", LOGIN);
         if (!fgets(login, sizeof(login), stdin)) continue;
         login[strcspn(login, "\n")] = '\0';
 
         if (verifyLogin(login) == -1) {
-            printf("Error: Login must be 1-6 alphanumeric chars.\n");
+            printf("Ошибка: логин должен содержать от 1 до %d букв и цифр.\n", LOGIN);
             continue;
         }
 
-        printf("PIN (0-100000): ");
+        printf("Введите PIN-код (0-100000): ");
         char pinStr[10];
         if (!fgets(pinStr, sizeof(pinStr), stdin)) continue;
         pinStr[strcspn(pinStr, "\n")] = '\0';
@@ -458,7 +505,7 @@ int loginScreen(UserDatabase* db) {
         char *pinEndPtr;
         long pin = strtol(pinStr, &pinEndPtr, 10);
         if (*pinEndPtr != '\0' || pin < 0 || pin > 100000) {
-            printf("Error: PIN must be between 0 and 100000.\n");
+            printf("Ошибка: PIN-код должен быть числом от 0 до 100000.\n");
             continue;
         }
 
@@ -468,23 +515,24 @@ int loginScreen(UserDatabase* db) {
         if (choice == 1) {
             User *user = locateUser(db, login);
             if (!user || user->pinHash != inputPinHash) {
-                printf("Wrong login or PIN!\n");
+                printf("Ошибка: неверный логин или PIN-код!\n");
                 continue;
             }
-            printf("Hello, welcome back!\n");
+            printf("Добро пожаловать, %s!\n", login);
             userSession(db, user);
         } else {
             if (locateUser(db, login)) {
-                printf("Login already exists!\n");
+                printf("Ошибка: такой логин уже существует!\n");
                 continue;
             }
             if (addUser(db, login, pin)) {
+                printf("Регистрация успешно завершена!\n");
                 userSession(db, db->users[db->count - 1]);
             }
         }
     }
     if (!storeUsers(db)) {
-        printf("Warning: Failed to save user data on exit.\n");
+        printf("Предупреждение: не удалось сохранить данные пользователей при выходе.\n");
     }
 
     return 0;
@@ -493,21 +541,21 @@ int loginScreen(UserDatabase* db) {
 int main() {
     UserDatabase db;
     if (!setupDatabase(&db, "users.txt")) {
-        printf("Failed to initialize database. Exiting.\n");
+        printf("Ошибка: не удалось инициализировать базу данных. Выход.\n");
         return 1;
     }
     int running = 1;
 
     while (running) {
-        printf("\nMain Menu:\n");
-        printf("  1. Enter Shell (Login/Register)\n");
-        printf("  2. Show Available Commands\n");
-        printf("  3. Exit\n");
-        printf("Choose an option: ");
+        printf("\n=== Главное меню ===\n");
+        printf("1. Войти в оболочку (Вход/Регистрация)\n");
+        printf("2. Показать доступные команды\n");
+        printf("3. Выход\n");
+        printf("Выберите действие: ");
 
         char choiceStr[10];
         if (!fgets(choiceStr, sizeof(choiceStr), stdin)) {
-            printf("Program terminated with EOF.\n");
+            printf("Программа завершена.\n");
             break;
         }
         choiceStr[strcspn(choiceStr, "\n")] = '\0';
@@ -515,7 +563,7 @@ int main() {
         char *endptr;
         long choice = strtol(choiceStr, &endptr, 10);
         if (*endptr != '\0' || choice < 1 || choice > 3) {
-            printf("Please select a valid option (1-3).\n");
+            printf("Ошибка: выберите число от 1 до 3.\n");
             continue;
         }
 
@@ -524,10 +572,11 @@ int main() {
                 loginScreen(&db);
                 break;
             case 2:
+                printf("\n=== Список доступных команд ===\n");
                 displayMenu();
                 break;
             case 3:
-                printf("Exiting program.\n");
+                printf("Завершение работы программы.\n");
                 running = 0;
                 break;
         }
