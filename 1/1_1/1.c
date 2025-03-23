@@ -498,13 +498,31 @@ int loginScreen(UserDatabase* db) {
         }
 
         printf("Введите PIN-код (0-100000): ");
-        char pinStr[10];
-        if (!fgets(pinStr, sizeof(pinStr), stdin)) continue;
-        pinStr[strcspn(pinStr, "\n")] = '\0';
-
-        char *pinEndPtr;
-        long pin = strtol(pinStr, &pinEndPtr, 10);
-        if (*pinEndPtr != '\0' || pin < 0 || pin > 100000) {
+        char pinInput[20];
+        if (!fgets(pinInput, sizeof(pinInput), stdin)) continue;
+        
+        pinInput[strcspn(pinInput, "\n")] = '\0';
+        
+        if (strlen(pinInput) == 0 || strchr(pinInput, ' ') != NULL) {
+            printf("Ошибка: PIN-код не может быть пустым или содержать пробелы.\n");
+            continue;
+        }
+        
+        int validPin = 1;
+        for (int i = 0; pinInput[i] != '\0'; i++) {
+            if (!isdigit(pinInput[i])) {
+                validPin = 0;
+                break;
+            }
+        }
+        
+        if (!validPin) {
+            printf("Ошибка: PIN-код должен содержать только цифры.\n");
+            continue;
+        }
+        
+        long pin = strtol(pinInput, &endptr, 10);
+        if (*endptr != '\0' || pin < 0 || pin > 100000) {
             printf("Ошибка: PIN-код должен быть числом от 0 до 100000.\n");
             continue;
         }
