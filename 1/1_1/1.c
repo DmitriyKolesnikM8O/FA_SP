@@ -479,6 +479,10 @@ int loginScreen(UserDatabase* db) {
             break;
         }
         choiceStr[strcspn(choiceStr, "\n")] = '\0';
+        
+        if (strlen(choiceStr) == 0) {
+            continue;
+        }
 
         char *endptr;
         long choice = strtol(choiceStr, &endptr, 10);
@@ -495,6 +499,10 @@ int loginScreen(UserDatabase* db) {
         printf("Введите логин (до %d символов, только буквы и цифры): ", LOGIN);
         if (!fgets(login, sizeof(login), stdin)) continue;
         login[strcspn(login, "\n")] = '\0';
+        
+        if (strlen(login) == 0) {
+            continue;
+        }
 
         if (verifyLogin(login) == -1) {
             printf("Ошибка: логин должен содержать от 1 до %d букв и цифр.\n", LOGIN);
@@ -507,8 +515,7 @@ int loginScreen(UserDatabase* db) {
         
         pinInput[strcspn(pinInput, "\n")] = '\0';
         
-        if (strlen(pinInput) == 0 || strchr(pinInput, ' ') != NULL) {
-            printf("Ошибка: PIN-код не может быть пустым или содержать пробелы.\n");
+        if (strlen(pinInput) == 0) {
             continue;
         }
         
@@ -586,6 +593,10 @@ int main() {
             break;
         }
         choiceStr[strcspn(choiceStr, "\n")] = '\0';
+        
+        if (strlen(choiceStr) == 0) {
+            continue;
+        }
 
         char *endptr;
         long choice = strtol(choiceStr, &endptr, 10);
