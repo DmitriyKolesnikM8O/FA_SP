@@ -131,11 +131,12 @@ int searchTextInFiles(int file_count, char *files[], const char *search_string) 
         return 0;
     }
     int pid_count = 0;
-    int found = 0;
 
+    
     for (int i = 0; i < file_count; i++) {
         pid_t pid = fork();
         if (pid == 0) {
+            
             FILE *file = fopen(files[i], "r");
             if (!file) {
                 exit(1);
@@ -143,132 +144,122 @@ int searchTextInFiles(int file_count, char *files[], const char *search_string) 
 
             char *line = NULL;
             size_t len = 0;
-            ssize_t read;
-            int status = 2;
-            while ((read = getline(&line, &len, file)) != -1) {
-                if (ferror(file)) {
-                    perror("File reading issue detected");
-                    free(line);
-                    fclose(file);
-                    exit(3);
-                }
+            while (getline(&line, &len, file) != -1) {
                 if (strstr(line, search_string)) {
                     printf("Match located in: %s\n", files[i]);
-                    status = 0;
-                    break;
+                    free(line);
+                    fclose(file);
+                    exit(0);
                 }
             }
             free(line);
             fclose(file);
-            exit(status);
+            exit(2);
         } else if (pid < 0) {
             perror("Process creation failed");
-            while (pid_count > 0) {
-                waitpid(pids[--pid_count], NULL, 0);
-            }
-            free(pids);
-            return 0;
         } else {
             pids[pid_count++] = pid;
         }
     }
 
-    for (int i = 0; i < pid_count; i++) {
-        int status;
-        waitpid(pids[i], &status, 0);
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-            found = 1;
+    
+    int remaining = pid_count;
+    int found = 0;
+    while (remaining > 0) {
+        for (int i = 0; i < pid_count; i++) {
+            if (pids[i] > 0) {
+                int status;
+                pid_t result = waitpid(pids[i], &status, WNOHANG);
+                if (result > 0) {
+                    if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+                        found = 1;
+                    }
+                    pids[i] = -1;  
+                    remaining--;
+                }
+            }
         }
+        usleep(1000);  
     }
 
     if (!found) {
         printf("No occurrences of '%s' found in the files.\n", search_string);
     }
     free(pids);
-
     return 0;
 }
 
 int replicateFilesN(int file_count, char *files[], int N) {
-    pid_t *pids_array = malloc(file_count * N * sizeof(pid_t));
-    if (pids_array == NULL) {
+    int total_processes = file_count * N;
+    pid_t *pids = malloc(total_processes * sizeof(pid_t));
+    if (!pids) {
         perror("PID memory allocation error");
         return 0;
     }
-    int number_of_pids = 0;
+    int pid_count = 0;
 
-    int outer_loop_index = 0;
-    while (outer_loop_index < file_count) {
-        int inner_loop_index = 0;
-        while (inner_loop_index < N) {
-            pid_t current_pid = fork();
-            if (current_pid == 0) {
+    
+    for (int file_idx = 0; file_idx < file_count; file_idx++) {
+        for (int copy_idx = 0; copy_idx < N; copy_idx++) {
+            pid_t pid = fork();
+            if (pid == 0) {
                 char new_filename[256];
-                snprintf(new_filename, sizeof(new_filename), "%s_%d", files[outer_loop_index], inner_loop_index + 1);
-                FILE *source_file = fopen(files[outer_loop_index], "rb");
-                if (source_file == NULL) {
-                    perror("Source file cannot be opened");
+                snprintf(new_filename, sizeof(new_filename), "%s_%d", files[file_idx], copy_idx + 1);
+                
+                FILE *source = fopen(files[file_idx], "rb");
+                if (!source) {
                     exit(1);
                 }
-                FILE *destination_file = fopen(new_filename, "wb");
-                if (destination_file == NULL) {
-                    perror("Destination file creation failed");
-                    fclose(source_file);
+                FILE *dest = fopen(new_filename, "wb");
+                if (!dest) {
+                    fclose(source);
                     exit(2);
                 }
 
+                
                 uint8_t buffer[4096];
-                size_t bytes_read;
-                int exit_status = 0;
-                while (1) {
-                    bytes_read = fread(buffer, 1, sizeof(buffer), source_file);
-                    if (bytes_read == 0) {
-                        break;
-                    }
-                    if (ferror(source_file)) {
-                        perror("Error reading source file");
-                        exit_status = 3;
-                        break;
-                    }
-                    if (fwrite(buffer, 1, bytes_read, destination_file) != bytes_read) {
-                        perror("Writing to destination file failed");
-                        exit_status = 4;
-                        break;
+                size_t bytes;
+                while ((bytes = fread(buffer, 1, sizeof(buffer), source)) > 0) {
+                    if (fwrite(buffer, 1, bytes, dest) != bytes) {
+                        fclose(source);
+                        fclose(dest);
+                        exit(3);
                     }
                 }
-                fclose(source_file);
-                fclose(destination_file);
-                exit(exit_status);
-            } else if (current_pid < 0) {
-                perror("Fork operation unsuccessful");
-                while (number_of_pids > 0) {
-                    waitpid(pids_array[--number_of_pids], NULL, 0);
-                }
-                free(pids_array);
-                return 0;
-            } else {
-                pids_array[number_of_pids++] = current_pid;
+
+                fclose(source);
+                fclose(dest);
+                exit(0);
+            } else if (pid > 0) {
+                pids[pid_count++] = pid;
             }
-            inner_loop_index = inner_loop_index + 1;
         }
-        outer_loop_index = outer_loop_index + 1;
     }
 
-    int failure_flag = 0;
-    int wait_index = 0;
-    while (wait_index < number_of_pids) {
-        int status_code;
-        waitpid(pids_array[wait_index], &status_code, 0);
-        if (WIFEXITED(status_code) && WEXITSTATUS(status_code) != 0) {
-            failure_flag = 1;
+    
+    int remaining = pid_count;
+    int failures = 0;
+    while (remaining > 0) {
+        for (int i = 0; i < pid_count; i++) {
+            if (pids[i] > 0) {
+                int status;
+                pid_t result = waitpid(pids[i], &status, WNOHANG);
+                if (result > 0) {
+                    if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+                        failures++;
+                    }
+                    pids[i] = -1;
+                    remaining--;
+                }
+            }
         }
-        wait_index = wait_index + 1;
+        usleep(1000);
     }
-    if (failure_flag) {
-        printf("Certain copy tasks encountered errors.\n");
-    }
-    free(pids_array);
 
+    if (failures > 0) {
+        printf("Some copy operations failed (%d failures)\n", failures);
+    }
+    free(pids);
     return 0;
 }
 
