@@ -144,16 +144,16 @@ int main(int argc, char **argv) {
 
    
     if (pthread_mutex_init(&mutex, NULL) != 0) {
-        perror("Failed to initialize mutex");
+        printf("Failed to initialize mutex");
         return INIT_ERROR;
     }
     if (pthread_cond_init(&cond_women, NULL) != 0) {
-        perror("Failed to initialize women condition");
+        printf("Failed to initialize women condition");
         pthread_mutex_destroy(&mutex);
         return INIT_ERROR;
     }
     if (pthread_cond_init(&cond_men, NULL) != 0) {
-        perror("Failed to initialize men condition");
+        printf("Failed to initialize men condition");
         pthread_mutex_destroy(&mutex);
         pthread_cond_destroy(&cond_women);
         return INIT_ERROR;
@@ -170,14 +170,14 @@ int main(int argc, char **argv) {
     
     for (int i = 0; i < women_threads; i++) {
         if (pthread_create(&threads[i], NULL, woman_thread, NULL) != 0) {
-            perror("Failed to create woman thread");
+            printf("Failed to create woman thread");
             running = 0;
             return THREAD_ERROR;
         }
     }
     for (int i = 0; i < men_threads; i++) {
         if (pthread_create(&threads[women_threads + i], NULL, man_thread, NULL) != 0) {
-            perror("Failed to create man thread");
+            printf("Failed to create man thread");
             running = 0;
             return THREAD_ERROR;
         }

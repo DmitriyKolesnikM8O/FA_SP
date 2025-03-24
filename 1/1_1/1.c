@@ -4,6 +4,7 @@
 #include <time.h>
 #include <ctype.h>
 #include <limits.h>
+#include <sys/types.h>
 
 #define MAX_USERS 1000
 #define LOGIN 6
@@ -18,7 +19,7 @@ typedef struct {
 typedef struct {
     User *users[MAX_USERS];
     int count;
-    char dbFilePath[256];
+    char *dbFilePath;
 } UserDatabase;
 
 int checkLeapYear(int year) {
@@ -69,8 +70,15 @@ int verifyLogin(const char *login) {
 }
 
 int encryptPin(long int pin, unsigned long *output) {
-    char temp[7];
-    sprintf(temp, "%ld", pin);
+    // Вычисляем длину числа
+    int len = snprintf(NULL, 0, "%ld", pin) + 1;
+    char *temp = malloc(len);
+    if (!temp) {
+        printf("Ошибка: не удалось выделить память.\n");
+        return -1;
+    }
+    
+    snprintf(temp, len, "%ld", pin);
     *output = 0;
     int i = 0;
     while (temp[i] != '\0') {
@@ -78,6 +86,7 @@ int encryptPin(long int pin, unsigned long *output) {
         i++;
     }
 
+    free(temp);
     return 0;
 }
 
@@ -90,17 +99,18 @@ int setupDatabase(UserDatabase* db, const char* filePath) {
         printf("Ошибка: неверный путь к файлу.\n");
         return 0;
     }
-    if (strlen(filePath) >= 256) {
-        printf("Ошибка: путь к файлу превышает максимальную длину в 255 символов.\n");
-        return 0;
-    }
 
     db->count = 0;
     int i;
     for (i = 0; i < MAX_USERS; i++) {
         db->users[i] = NULL;
     }
-    strcpy(db->dbFilePath, filePath);
+    
+    db->dbFilePath = strdup(filePath);
+    if (!db->dbFilePath) {
+        printf("Ошибка: не удалось выделить память для пути к файлу.\n");
+        return 0;
+    }
     return 1;
 }
 
@@ -205,7 +215,7 @@ int storeUsers(const UserDatabase* db) {
 
     FILE* file = fopen(db->dbFilePath, "wb");
     if (!file) {
-        perror("Ошибка открытия файла для сохранения данных пользователей");
+        printf("Ошибка открытия файла для сохранения данных пользователей");
         return 0;
     }
     int i = 0;
@@ -227,23 +237,40 @@ int storeUsers(const UserDatabase* db) {
 }
 
 int handleTimeElapsed() {
-    char dateStr[32], flag[10];
+    char *dateStr = NULL;
+    char *flag = NULL;
+    size_t date_size = 0;
+    size_t flag_size = 0;
+    
     printf("Input date (dd.mm.yyyy): ");
-    if (!fgets(dateStr, sizeof(dateStr), stdin)) return 0;
-    dateStr[strcspn(dateStr, "\n")] = '\0';
+    if (getline(&dateStr, &date_size, stdin) == -1) {
+        return 0;
+    }
+    if (dateStr[strlen(dateStr) - 1] == '\n') {
+        dateStr[strlen(dateStr) - 1] = '\0';
+    }
 
     printf("Select unit (-s, -m, -h, -y): ");
-    if (!fgets(flag, sizeof(flag), stdin)) return 0;
-    flag[strcspn(flag, "\n")] = '\0';
+    if (getline(&flag, &flag_size, stdin) == -1) {
+        free(dateStr);
+        return 0;
+    }
+    if (flag[strlen(flag) - 1] == '\n') {
+        flag[strlen(flag) - 1] = '\0';
+    }
 
     int day, month, year;
     if (!checkTimeElapsedInput(dateStr, &day, &month, &year, flag)) {
         printf("Invalid date or unit (-s, -m, -h, or -y).\n");
+        free(dateStr);
+        free(flag);
         return 0;
     }
 
     calculateTimeElapsed(day, month, year, flag);
-
+    
+    free(dateStr);
+    free(flag);
     return 0;
 }
 
@@ -275,32 +302,55 @@ int setUserRestriction(UserDatabase* db, const char *targetLogin, int limit) {
     return 0;
 }
 
-
-
 int handleUserRestriction(UserDatabase* db) {
-    char targetLogin[LOGIN + 2], limitStr[10], confirm[10];
+    char *targetLogin = NULL;
+    char *limitStr = NULL;
+    char *confirm = NULL;
+    size_t login_size = 0;
+    size_t limit_size = 0;
+    size_t confirm_size = 0;
     
     printf("Enter login to restrict: ");
-    if (!fgets(targetLogin, sizeof(targetLogin), stdin)) return 0;
-    targetLogin[strcspn(targetLogin, "\n")] = '\0';
+    if (getline(&targetLogin, &login_size, stdin) == -1) {
+        return 0;
+    }
+    if (targetLogin[strlen(targetLogin) - 1] == '\n') {
+        targetLogin[strlen(targetLogin) - 1] = '\0';
+    }
 
     printf("Set command limit: ");
-    if (!fgets(limitStr, sizeof(limitStr), stdin)) return 0;
-    limitStr[strcspn(limitStr, "\n")] = '\0';
-
+    if (getline(&limitStr, &limit_size, stdin) == -1) {
+        free(targetLogin);
+        return 0;
+    }
+    if (limitStr[strlen(limitStr) - 1] == '\n') {
+        limitStr[strlen(limitStr) - 1] = '\0';
+    }
 
     printf("Enter confirmation code: ");
-    if (!fgets(confirm, sizeof(confirm), stdin)) return 0;
-    confirm[strcspn(confirm, "\n")] = '\0';
+    if (getline(&confirm, &confirm_size, stdin) == -1) {
+        free(targetLogin);
+        free(limitStr);
+        return 0;
+    }
+    if (confirm[strlen(confirm) - 1] == '\n') {
+        confirm[strlen(confirm) - 1] = '\0';
+    }
 
     if (!checkRestrictionInput(targetLogin, limitStr, confirm)) {
         printf("Invalid input or wrong confirmation code.\n");
+        free(targetLogin);
+        free(limitStr);
+        free(confirm);
         return 0;
     }
 
     int limit = atoi(limitStr);
     setUserRestriction(db, targetLogin, limit);
-
+    
+    free(targetLogin);
+    free(limitStr);
+    free(confirm);
     return 0;
 }
 
@@ -311,7 +361,7 @@ int fetchUsers(UserDatabase* db) {
     while (db->count < MAX_USERS) {
         User* user = malloc(sizeof(User));
         if (!user) {
-            printf("Failed to allocate memory.\n");
+            printf("Ошибка при аллокации памяти при загрузке бинарных данных.\n");
             break;
         }
         if (fread(user, sizeof(User), 1, file) != 1) {
@@ -336,7 +386,7 @@ int cleanupDatabase(UserDatabase* db) {
         i++;
     }
     db->count = 0;
-
+    free(db->dbFilePath);
     return 0;
 }
 
@@ -378,16 +428,20 @@ int addUser(UserDatabase* db, const char *login, long int pin) {
 }
 
 int userSession(UserDatabase* db, const User* currentUser) {
-    char input[256];
+    char *input = NULL;
+    size_t input_size = 0;
     int sessionCommandCount = 0;
 
     while (1) {
         printf("\n%s> ", currentUser->login);
-        if (!fgets(input, sizeof(input), stdin)) {
+        ssize_t read = getline(&input, &input_size, stdin);
+        if (read == -1) {
             printf("Сессия завершена.\n");
             break;
         }
-        input[strcspn(input, "\n")] = '\0';
+        if (input[read - 1] == '\n') {
+            input[read - 1] = '\0';
+        }
 
         if (strlen(input) == 0) continue;
 
@@ -395,6 +449,7 @@ int userSession(UserDatabase* db, const User* currentUser) {
             printf("Достигнут лимит запросов. Доступна только команда Logout.\n");
             if (strcmp(input, "Logout") == 0) {
                 printf("Выход из системы.\n");
+                free(input);
                 return 0;
             }
             continue;
@@ -402,6 +457,7 @@ int userSession(UserDatabase* db, const User* currentUser) {
 
         if (strcmp(input, "Logout") == 0) {
             printf("Выход из системы.\n");
+            free(input);
             return 0;
         }
         else if (strcmp(input, "Time") == 0) {
@@ -413,8 +469,12 @@ int userSession(UserDatabase* db, const User* currentUser) {
             sessionCommandCount++;
         }
         else if (strncmp(input, "Howmuch ", 8) == 0) {
-            char dateStr[32], flag[10];
-            if (sscanf(input + 8, "%s %s", dateStr, flag) != 2) {
+            char *dateStr = NULL;
+            char *flag = NULL;
+            size_t date_size = 0;
+            size_t flag_size = 0;
+            
+            if (sscanf(input + 8, "%ms %ms", &dateStr, &flag) != 2) {
                 printf("Ошибка: неверный формат команды.\n");
                 printf("Пример: Howmuch 01.01.2024 -s\n");
                 continue;
@@ -424,32 +484,53 @@ int userSession(UserDatabase* db, const User* currentUser) {
             if (!checkTimeElapsedInput(dateStr, &day, &month, &year, flag)) {
                 printf("Ошибка: неверный формат даты или флага.\n");
                 printf("Используйте формат: DD.MM.YYYY и флаг -s, -m, -h или -y\n");
+                free(dateStr);
+                free(flag);
                 continue;
             }
             
             calculateTimeElapsed(day, month, year, flag);
+            free(dateStr);
+            free(flag);
             sessionCommandCount++;
         }
         else if (strncmp(input, "Sanctions ", 10) == 0) {
-            char targetLogin[LOGIN + 2], limitStr[10];
-            if (sscanf(input + 10, "%s %s", targetLogin, limitStr) != 2) {
+            char *targetLogin = NULL;
+            char *limitStr = NULL;
+            size_t login_size = 0;
+            size_t limit_size = 0;
+            
+            if (sscanf(input + 10, "%ms %ms", &targetLogin, &limitStr) != 2) {
                 printf("Ошибка: неверный формат команды.\n");
                 printf("Пример: Sanctions user1 10\n");
                 continue;
             }
 
             printf("Введите код подтверждения: ");
-            char confirm[10];
-            if (!fgets(confirm, sizeof(confirm), stdin)) continue;
-            confirm[strcspn(confirm, "\n")] = '\0';
+            char *confirm = NULL;
+            size_t confirm_size = 0;
+            if (getline(&confirm, &confirm_size, stdin) == -1) {
+                free(targetLogin);
+                free(limitStr);
+                continue;
+            }
+            if (confirm[strlen(confirm) - 1] == '\n') {
+                confirm[strlen(confirm) - 1] = '\0';
+            }
 
             if (!checkRestrictionInput(targetLogin, limitStr, confirm)) {
                 printf("Ошибка: неверный ввод или код подтверждения.\n");
+                free(targetLogin);
+                free(limitStr);
+                free(confirm);
                 continue;
             }
 
             int limit = atoi(limitStr);
             setUserRestriction(db, targetLogin, limit);
+            free(targetLogin);
+            free(limitStr);
+            free(confirm);
             sessionCommandCount++;
         }
         else if (strcmp(input, "Help") == 0) {
@@ -460,6 +541,7 @@ int userSession(UserDatabase* db, const User* currentUser) {
         }
     }
 
+    free(input);
     return 0;
 }
 
@@ -473,19 +555,25 @@ int loginScreen(UserDatabase* db) {
         printf("3. Выход\n");
         printf("Выберите действие: ");
         
-        char choiceStr[10];
-        if (!fgets(choiceStr, sizeof(choiceStr), stdin)) {
+        char *choiceStr = NULL;
+        size_t choice_size = 0;
+        if (getline(&choiceStr, &choice_size, stdin) == -1) {
             printf("Программа завершена.\n");
             break;
         }
-        choiceStr[strcspn(choiceStr, "\n")] = '\0';
+        if (choiceStr[strlen(choiceStr) - 1] == '\n') {
+            choiceStr[strlen(choiceStr) - 1] = '\0';
+        }
         
         if (strlen(choiceStr) == 0) {
+            free(choiceStr);
             continue;
         }
 
         char *endptr;
         long choice = strtol(choiceStr, &endptr, 10);
+        free(choiceStr);
+        
         if (*endptr != '\0' || choice < 1 || choice > 3) {
             printf("Ошибка: выберите число от 1 до 3.\n");
             continue;
@@ -495,32 +583,48 @@ int loginScreen(UserDatabase* db) {
             break;
         }
 
-        char login[LOGIN + 2];
+        char *login = NULL;
+        size_t login_size = 0;
         printf("Введите логин (до %d символов, только буквы и цифры): ", LOGIN);
-        if (!fgets(login, sizeof(login), stdin)) continue;
-        login[strcspn(login, "\n")] = '\0';
+        if (getline(&login, &login_size, stdin) == -1) {
+            continue;
+        }
+        if (login[strlen(login) - 1] == '\n') {
+            login[strlen(login) - 1] = '\0';
+        }
         
         if (strlen(login) == 0) {
+            free(login);
             continue;
         }
 
         if (verifyLogin(login) == -1) {
             printf("Ошибка: логин должен содержать от 1 до %d букв и цифр.\n", LOGIN);
+            free(login);
             continue;
         }
 
         printf("Введите PIN-код (0-100000): ");
-        char pinInput[20];
-        if (!fgets(pinInput, sizeof(pinInput), stdin)) continue;
-        
-        pinInput[strcspn(pinInput, "\n")] = '\0';
+        char *pinInput = NULL;
+        size_t pin_size = 0;
+        if (getline(&pinInput, &pin_size, stdin) == -1) {
+            free(login);
+            continue;
+        }
+        if (pinInput[strlen(pinInput) - 1] == '\n') {
+            pinInput[strlen(pinInput) - 1] = '\0';
+        }
         
         if (strlen(pinInput) == 0) {
+            free(login);
+            free(pinInput);
             continue;
         }
         
         if (strlen(pinInput) > 1 && pinInput[0] == '0') {
             printf("Ошибка: PIN-код не может начинаться с нуля.\n");
+            free(login);
+            free(pinInput);
             continue;
         }
         
@@ -534,12 +638,17 @@ int loginScreen(UserDatabase* db) {
         
         if (!validPin) {
             printf("Ошибка: PIN-код должен содержать только цифры.\n");
+            free(login);
+            free(pinInput);
             continue;
         }
         
         long pin = strtol(pinInput, &endptr, 10);
+        free(pinInput);
+        
         if (*endptr != '\0' || pin < 0 || pin > 100000) {
             printf("Ошибка: PIN-код должен быть числом от 0 до 100000.\n");
+            free(login);
             continue;
         }
 
@@ -550,6 +659,7 @@ int loginScreen(UserDatabase* db) {
             User *user = locateUser(db, login);
             if (!user || user->pinHash != inputPinHash) {
                 printf("Ошибка: неверный логин или PIN-код!\n");
+                free(login);
                 continue;
             }
             printf("Добро пожаловать, %s!\n", login);
@@ -557,6 +667,7 @@ int loginScreen(UserDatabase* db) {
         } else {
             if (locateUser(db, login)) {
                 printf("Ошибка: такой логин уже существует!\n");
+                free(login);
                 continue;
             }
             if (addUser(db, login, pin)) {
@@ -564,6 +675,7 @@ int loginScreen(UserDatabase* db) {
                 userSession(db, db->users[db->count - 1]);
             }
         }
+        free(login);
     }
     if (!storeUsers(db)) {
         printf("Предупреждение: не удалось сохранить данные пользователей при выходе.\n");
@@ -587,19 +699,25 @@ int main() {
         printf("3. Выход\n");
         printf("Выберите действие: ");
 
-        char choiceStr[10];
-        if (!fgets(choiceStr, sizeof(choiceStr), stdin)) {
+        char *choiceStr = NULL;
+        size_t choice_size = 0;
+        if (getline(&choiceStr, &choice_size, stdin) == -1) {
             printf("Программа завершена.\n");
             break;
         }
-        choiceStr[strcspn(choiceStr, "\n")] = '\0';
+        if (choiceStr[strlen(choiceStr) - 1] == '\n') {
+            choiceStr[strlen(choiceStr) - 1] = '\0';
+        }
         
         if (strlen(choiceStr) == 0) {
+            free(choiceStr);
             continue;
         }
 
         char *endptr;
         long choice = strtol(choiceStr, &endptr, 10);
+        free(choiceStr);
+        
         if (*endptr != '\0' || choice < 1 || choice > 3) {
             printf("Ошибка: выберите число от 1 до 3.\n");
             continue;

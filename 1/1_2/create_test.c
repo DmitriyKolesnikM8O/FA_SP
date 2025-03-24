@@ -4,7 +4,7 @@
 int main() {
     FILE *file = fopen("test.bin", "wb");
     if (!file) {
-        perror("Не удалось создать файл");
+        printf("Не удалось создать файл");
         return 1;
     }
     

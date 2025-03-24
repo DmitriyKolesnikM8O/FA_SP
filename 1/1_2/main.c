@@ -12,7 +12,7 @@ int countMaskedValues(int file_count, char *files[], uint32_t mask) {
     while (current_file_index < file_count) {
         FILE *file_pointer = fopen(files[current_file_index], "rb");
         if (file_pointer == NULL) {
-            perror("Could not open file");
+            printf("Could not open file");
             current_file_index = current_file_index + 1;
             continue;
         }
@@ -43,7 +43,7 @@ int bitwiseCombineN(int file_count, char *files[], int N) {
     size_t block_size_value = BLOCK_SIZE_2N(N);
     uint8_t *block_memory = calloc(block_size_value, 1);
     if (block_memory == NULL) {
-        perror("Cannot allocate memory for block");
+        printf("Cannot allocate memory for block");
         return 0;
     }
 
@@ -51,14 +51,14 @@ int bitwiseCombineN(int file_count, char *files[], int N) {
     while (file_index < file_count) {
         FILE *file_handle = fopen(files[file_index], "rb");
         if (file_handle == NULL) {
-            perror("Unable to access file");
+            printf("Unable to access file");
             file_index = file_index + 1;
             continue;
         }
 
         uint8_t *result_memory = calloc(block_size_value, 1);
         if (result_memory == NULL) {
-            perror("Memory allocation for result failed");
+            printf("Memory allocation for result failed");
             fclose(file_handle);
             file_index = file_index + 1;
             continue;
@@ -73,7 +73,7 @@ int bitwiseCombineN(int file_count, char *files[], int N) {
                 break;
             }
             if (ferror(file_handle)) {
-                perror("File read error occurred");
+                printf("File read error occurred");
                 break;
             }
             if (bytes_read_into_buffer < block_size_value) {
@@ -119,7 +119,7 @@ int searchTextInFiles(int file_count, char *files[], const char *search_string) 
 
     pid_t *pids = malloc(file_count * sizeof(pid_t));
     if (!pids) {
-        perror("Cannot allocate memory for process IDs");
+        printf("Cannot allocate memory for process IDs");
         return 0;
     }
     int pid_count = 0;
@@ -131,7 +131,7 @@ int searchTextInFiles(int file_count, char *files[], const char *search_string) 
             
             FILE *file = fopen(files[i], "r");
             if (!file) {
-                exit(1);
+                return -1;
             }
 
             char *line = NULL;
@@ -141,14 +141,14 @@ int searchTextInFiles(int file_count, char *files[], const char *search_string) 
                     printf("Match located in: %s\n", files[i]);
                     free(line);
                     fclose(file);
-                    exit(0);
+                    return -1;
                 }
             }
             free(line);
             fclose(file);
-            exit(2);
+            return -1;
         } else if (pid < 0) {
-            perror("Process creation failed");
+            printf("Process creation failed");
         } else {
             pids[pid_count++] = pid;
         }
@@ -185,7 +185,7 @@ int replicateFilesN(int file_count, char *files[], int N) {
     int total_processes = file_count * N;
     pid_t *pids = malloc(total_processes * sizeof(pid_t));
     if (!pids) {
-        perror("PID memory allocation error");
+        printf("PID memory allocation error");
         return 0;
     }
     int pid_count = 0;
@@ -194,44 +194,55 @@ int replicateFilesN(int file_count, char *files[], int N) {
         for (int copy_idx = 0; copy_idx < N; copy_idx++) {
             pid_t pid = fork();
             if (pid == 0) {
-                char new_filename[256];
+                char *new_filename = NULL;
                 char *dot = strrchr(files[file_idx], '.');
+                size_t name_length;
+                
                 if (dot) {
-                    
-                    size_t name_length = dot - files[file_idx];
+                    name_length = dot - files[file_idx];
+                    new_filename = malloc(name_length + 20); 
+                    if (!new_filename) {
+                        return -1;
+                    }
                     strncpy(new_filename, files[file_idx], name_length);
                     new_filename[name_length] = '\0';
-                    snprintf(new_filename + name_length, sizeof(new_filename) - name_length, 
-                            "_%d%s", copy_idx + 1, dot);
+                    snprintf(new_filename + name_length, 20, "_%d%s", copy_idx + 1, dot);
                 } else {
-                    
-                    snprintf(new_filename, sizeof(new_filename), "%s_%d", 
-                            files[file_idx], copy_idx + 1);
+                    name_length = strlen(files[file_idx]);
+                    new_filename = malloc(name_length + 10); 
+                    if (!new_filename) {
+                        return -1;
+                    }
+                    snprintf(new_filename, name_length + 10, "%s_%d", files[file_idx], copy_idx + 1);
                 }
                 
                 FILE *source = fopen(files[file_idx], "rb");
                 if (!source) {
-                    exit(1);
+                    free(new_filename);
+                    return -1;
                 }
                 FILE *dest = fopen(new_filename, "wb");
                 if (!dest) {
+                    free(new_filename);
                     fclose(source);
-                    exit(2);
+                    return -1;
                 }
 
                 uint8_t buffer[4096];
                 size_t bytes;
                 while ((bytes = fread(buffer, 1, sizeof(buffer), source)) > 0) {
                     if (fwrite(buffer, 1, bytes, dest) != bytes) {
+                        free(new_filename);
                         fclose(source);
                         fclose(dest);
-                        exit(3);
+                        return 3;
                     }
                 }
 
+                free(new_filename);
                 fclose(source);
                 fclose(dest);
-                exit(0);
+                return -1;
             } else if (pid > 0) {
                 pids[pid_count++] = pid;
             }

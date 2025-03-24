@@ -12,9 +12,6 @@
 #include <sys/ioctl.h>
 #include <linux/fs.h>
 
-#define PATH_MAX 4096
-
-
 #define COLOR_RESET   "\x1b[0m"    // Сброс цвета (используется после каждого цветного вывода)
 #define COLOR_BLUE    "\x1b[34m"   // Синий - для директорий
 #define COLOR_GREEN   "\x1b[32m"   // Зеленый - для сокетов
@@ -268,20 +265,34 @@ int explore_directory(const char *folder_path) {
 
     printf("Содержимое каталога: %s\n", folder_path);
     struct dirent *entry;
-    char full_path[PATH_MAX];
+    char *full_path = NULL;
 
     while ((entry = readdir(directory)) != NULL) {
         if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) {
             continue;
         }
 
-        snprintf(full_path, PATH_MAX, "%s/%s", folder_path, entry->d_name);
+        size_t path_len = strlen(folder_path) + strlen(entry->d_name) + 2;
+        full_path = realloc(full_path, path_len);
+        
+        if (!full_path) {
+            fprintf(stderr, "Ошибка: не удалось выделить память для пути\n");
+            closedir(directory);
+            return 1;
+        }
+
+        
+        snprintf(full_path, path_len, "%s/%s", folder_path, entry->d_name);
+        
         if (process_file(full_path) != 0) {
+            free(full_path);
             closedir(directory);
             return 1;
         }
     }
 
+    
+    free(full_path);
     closedir(directory);
     return 0;
 }
